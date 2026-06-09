@@ -1,0 +1,23 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/hotelops
+    username: hotelops
+    password: hotelops
+    hikari:
+      # Pass stringtype=unspecified so the Postgres JDBC driver sends String parameters
+      # as "unspecified" type, enabling implicit casting to Postgres native enum types
+      # (e.g. vertical, booking_status, etc.)  — required for Hibernate 6 + Postgres enums
+      data-source-properties:
+        stringtype: unspecified
+  jpa:
+    hibernate:
+      ddl-auto: none          # Flyway owns the schema; Hibernate must not touch it
+    open-in-view: false       # avoid lazy-load across HTTP boundary
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        default_schema: public
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false

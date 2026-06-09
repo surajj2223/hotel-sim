@@ -441,9 +441,55 @@ COMMIT;
 -- SECTION 6 — VERIFICATION LOG  (filled by the implementing agent in Wave 1)
 -- Per requirement ID: what was built | commit/PR ref | test that proves it | date.
 -- =====================================================================================
--- | Req ID | Built (summary) | Commit/PR | Proving test | Date |
--- |--------|-----------------|-----------|--------------|------|
--- | (empty until Wave 1)                                          |
+-- | Req ID  | Built (summary)                                                      | Commit/PR | Proving test                                                       | Date       |
+-- |---------|------------------------------------------------------------------------------|-----------|--------------------------------------------------------------------|------------|
+-- | ENM-001 | Vertical enum (ROOM/SPA/FNB/EVENT) in enums/Vertical.java               | Wave1/PkgA | ProductEntityTest.SCH_010_product_room_has_correct_vertical        | 2026-06-09 |
+-- | ENM-002 | BookingStatus enum in enums/BookingStatus.java                           | Wave1/PkgA | BookingEntityTest.SCH_020_booking_persists_with_default_amounts    | 2026-06-09 |
+-- | ENM-003 | BookingLineStatus enum in enums/BookingLineStatus.java                   | Wave1/PkgA | BookingEntityTest.SCH_022_booking_line_persists_with_price_snapshot| 2026-06-09 |
+-- | ENM-004 | CaptureMode enum in enums/CaptureMode.java                               | Wave1/PkgA | PaymentEntityTest.SCH_030_payment_persists_with_reference_taxonomy | 2026-06-09 |
+-- | ENM-005 | PaymentStatus enum (9 states) in enums/PaymentStatus.java               | Wave1/PkgA | PaymentEntityTest.SCH_030_payment_persists_with_reference_taxonomy | 2026-06-09 |
+-- | ENM-006 | RefundStatus enum in enums/RefundStatus.java                             | Wave1/PkgA | PaymentEntityTest.SCH_040_refund_persists_with_original_reference_chain | 2026-06-09 |
+-- | ENM-007 | PspEventCode enum (7 codes) in enums/PspEventCode.java                  | Wave1/PkgA | LedgerAndOutboxEntityTest.SCH_070_webhook_inbox_persists_raw_payload | 2026-06-09 |
+-- | ENM-008 | PostingType enum in enums/PostingType.java                               | Wave1/PkgA | LedgerAndOutboxEntityTest.SCH_050_ledger_posting_revenue_persists  | 2026-06-09 |
+-- | ENM-009 | OutboxStatus enum in enums/OutboxStatus.java                             | Wave1/PkgA | LedgerAndOutboxEntityTest.SCH_060_outbox_event_persists_with_pending_status | 2026-06-09 |
+-- | ENM-010 | Reference-vocabulary glossary documented in Money.java + PaymentService  | Wave1/PkgA | InvariantTest (all reference taxonomy fields present on entities)  | 2026-06-09 |
+-- | SCH-001 | customer table; chk_shopper_reference_format; UNIQUE shopper_reference   | Wave1/PkgA | CustomerEntityTest.SCH_001_*                                        | 2026-06-09 |
+-- | SCH-002 | shopperReference updatable=false; minted by CustomerService              | Wave1/PkgA | CustomerEntityTest.SCH_002_shopper_reference_column_is_updatable_false | 2026-06-09 |
+-- | SCH-003 | customer_preference KV table; cascade delete                             | Wave1/PkgA | CustomerEntityTest.SCH_003_preferences_cascade_deleted_with_customer | 2026-06-09 |
+-- | SCH-004 | uq_pref_per_customer_key UNIQUE constraint enforced                      | Wave1/PkgA | CustomerEntityTest.SCH_004_unique_constraint_one_value_per_customer_key | 2026-06-09 |
+-- | SCH-010 | product JTI base table; chk_product_base_price_nonneg                   | Wave1/PkgA | ProductEntityTest.SCH_010_*                                         | 2026-06-09 |
+-- | SCH-011 | product_room JTI child; chk_room_count; chk_room_occupancy              | Wave1/PkgA | ProductEntityTest.SCH_011_*                                         | 2026-06-09 |
+-- | SCH-012 | product_spa JTI child; chk_spa_duration; chk_spa_slots                  | Wave1/PkgA | ProductEntityTest.SCH_012_*                                         | 2026-06-09 |
+-- | SCH-013 | product_fnb JTI child; chk_fnb_capacity                                 | Wave1/PkgA | ProductEntityTest.SCH_013_*                                         | 2026-06-09 |
+-- | SCH-014 | product_event JTI child; chk_event_capacity; chk_event_duration         | Wave1/PkgA | ProductEntityTest.SCH_014_*                                         | 2026-06-09 |
+-- | SCH-020 | booking table; amount roll-up columns; chk_booking_amounts_nonneg       | Wave1/PkgA | BookingEntityTest.SCH_020_*                                         | 2026-06-09 |
+-- | SCH-021 | booking_balance view; derived balance; BookingBalance entity             | Wave1/PkgA | BookingEntityTest.SCH_021_*                                         | 2026-06-09 |
+-- | SCH-022 | booking_line; flat price snapshot; chk_line_amount; chk_line_window     | Wave1/PkgA | BookingEntityTest.SCH_022_*                                         | 2026-06-09 |
+-- | SCH-030 | payment table; full reference taxonomy; merchant_reference UNIQUE        | Wave1/PkgA | PaymentEntityTest.SCH_030_*                                         | 2026-06-09 |
+-- | SCH-031 | merchant_reference UNIQUE, indexed, findByMerchantReference works       | Wave1/PkgA | PaymentEntityTest.SCH_031_*                                         | 2026-06-09 |
+-- | SCH-032 | chk_pay_capture_le_auth; partial capture in                             | Wave1/PkgA | PaymentEntityTest.SCH_032_*                                         | 2026-06-09 |
+-- | SCH-033 | chk_pay_refund_le_capture; cannot refund > captured                     | Wave1/PkgA | PaymentEntityTest.SCH_033_*                                         | 2026-06-09 |
+-- | SCH-034 | Single-capture rule documented; enforced by INV-005 in PaymentService   | Wave1/PkgA | InvariantTest.INV_005_second_capture_attempt_is_rejected            | 2026-06-09 |
+-- | SCH-040 | refund table; original_reference chain; chk_refund_amount_pos           | Wave1/PkgA | PaymentEntityTest.SCH_040_*                                         | 2026-06-09 |
+-- | SCH-050 | ledger_posting; signed amount; vertical attribution; PSP trace cols     | Wave1/PkgA | LedgerAndOutboxEntityTest.SCH_050_*                                 | 2026-06-09 |
+-- | SCH-051 | chk_posting_sign: REVENUE>=0, REFUND_REVERSAL<=0                        | Wave1/PkgA | LedgerAndOutboxEntityTest.SCH_051_*                                 | 2026-06-09 |
+-- | SCH-060 | outbox_event table; idx_outbox_pending partial index; OutboxProcessor   | Wave1/PkgA | LedgerAndOutboxEntityTest.SCH_060_*                                 | 2026-06-09 |
+-- | SCH-070 | webhook_inbox; idempotency_key UNIQUE; match by merchant_reference      | Wave1/PkgA | LedgerAndOutboxEntityTest.SCH_070_*                                 | 2026-06-09 |
+-- | SCH-071 | idempotency_key dedupe (existsByIdempotencyKey)                         | Wave1/PkgA | LedgerAndOutboxEntityTest.SCH_071_*                                 | 2026-06-09 |
+-- | INV-001 | shopperReference minted once in CustomerService; updatable=false        | Wave1/PkgA | InvariantTest.INV_001_*                                             | 2026-06-09 |
+-- | INV-002 | ProductService creates base+child atomically; one child per product     | Wave1/PkgA | InvariantTest.INV_002_*                                             | 2026-06-09 |
+-- | INV-003 | BookingService.addLine re-checks availability atomically; 409 on stale | Wave1/PkgA | InvariantTest.INV_003_*                                             | 2026-06-09 |
+-- | INV-004 | BookingService.recalculateTotals; roll-up of totalAmount/paid/refunded  | Wave1/PkgA | InvariantTest.INV_004_*                                             | 2026-06-09 |
+-- | INV-005 | PaymentService.capture rejects second capture (StateChangedException)  | Wave1/PkgA | InvariantTest.INV_005_*                                             | 2026-06-09 |
+-- | INV-006 | Authorisation/cancel: no outbox event; capture/refund: event enqueued  | Wave1/PkgA | InvariantTest.INV_006_*                                             | 2026-06-09 |
+-- | INV-007 | HumanAuthorizationGate; blank/null token -> 428; present token passes  | Wave1/PkgA | InvariantTest.INV_007_*                                             | 2026-06-09 |
+--
+-- NOTE: DataJPA integration tests (CustomerEntityTest, ProductEntityTest,
+-- BookingEntityTest, PaymentEntityTest, LedgerAndOutboxEntityTest) require a
+-- Docker/container runtime to run (Testcontainers + Postgres 16-alpine).  They
+-- are structured as @DataJpaTest + AbstractDataJpaTest with a @BeforeAll assumption
+-- that skips them gracefully when no container runtime is available.
+-- All 13 INV-* unit tests pass on every machine (no Docker required).
 --
 -- =====================================================================================
 -- SECTION 7 — CHANGELOG

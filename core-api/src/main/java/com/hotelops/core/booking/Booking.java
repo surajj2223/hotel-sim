@@ -1,0 +1,86 @@
+package com.hotelops.core.booking;
+
+import com.hotelops.core.common.enums.BookingStatus;
+import com.hotelops.core.customer.Customer;
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * SCH-020 — booking (folio).
+ *
+ * A booking groups one or more {@link BookingLine}s (potentially spanning verticals)
+ * for a single customer.  The three amount columns are maintained by core-api on
+ * capture/refund events (INV-004); clients never write them directly.
+ *
+ * "Paid" == (balance == 0), not a boolean.  Balance is exposed via {@code booking_balance}
+ * view (SCH-021); see {@link BookingBalance} for the JPA projection.
+ *
+ * Amounts are always in integer minor units (pence).
+ */
+@Entity
+@Table(name = "booking")
+@Getter
+@Setter
+@NoArgsConstructor
+public class Booking {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(updatable = false, nullable = false)
+    private UUID id;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "customer_id", nullable = false)
+    private Customer customer;
+
+    @Column(name = "status", nullable = false)
+    @Enumerated(EnumType.STRING)
+    private BookingStatus status = BookingStatus.PENDING;
+
+    @Column(name = "currency", length = 3, nullable = false)
+    private String currency = "GBP";
+
+    /** Sum of active line_amounts.  Maintained by INV-004. */
+    @Column(name = "total_amount", nullable = false)
+    private long totalAmount = 0L;
+
+    /** Sum of amount_captured across all payments for this booking.  INV-004. */
+    @Column(name = "amount_paid", nullable = false)
+    private long amountPaid = 0L;
+
+    /** Sum of settled refund amounts for this booking.  INV-004. */
+    @Column(name = "amount_refunded", nullable = false)
+    private long amountRefunded = 0L;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private OffsetDateTime createdAt;
+
+    @Column(name = "updated_at", nullable = false)
+    private OffsetDateTime updatedAt;
+
+    @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL, orphanRemoval = true,
+               fetch = FetchType.LAZY)
+    private List<BookingLine> lines = new ArrayList<>();
+
+    /** INV-004: derived balance (total - paid + refunded). */
+    public long getBalance() {
+        return totalAmount - amountPaid + amountRefunded;
+    }
+
+    @PrePersist
+    void onCreate() {
+        createdAt = updatedAt = OffsetDateTime.now();
+    }
+
+    @PreUpdate
+    void onUpdate() {
+        updatedAt = OffsetDateTime.now();
+    }
+}

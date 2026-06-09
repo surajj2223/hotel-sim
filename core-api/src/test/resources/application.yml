@@ -1,0 +1,10 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  # Note: datasource URL is set by @ServiceConnection from TestcontainersConfiguration.
+  # The stringtype=unspecified param is injected via PostgreSQLContainer.withUrlParam().
