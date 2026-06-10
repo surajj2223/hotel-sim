@@ -5,19 +5,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.UUID;
 
 /**
- * SCH-060 — outbox processor: polls PENDING outbox events and drives
- * {@link LedgerService} to create the appropriate ledger postings.
+ * SCH-060 — outbox scheduler: polls PENDING events and drives the ledger.
  *
- * Design: the processor is the ONLY consumer; it runs in a loop and marks events
- * PROCESSED or FAILED.  Idempotency is guaranteed because each event produces at most
- * one posting (processing checks PENDING before dispatching).
+ * GAP-2 fix (WHK-013):
+ * (a) Each event is claimed with a conditional PENDING→PROCESSING update before
+ *     dispatch; only the tick that wins the update (returns 1) proceeds.
+ * (b) The transactional ledger-write is delegated to {@link OutboxEventHandler}
+ *     (a separate injected bean) so Spring's proxy applies @Transactional correctly.
+ *     The old design had @Transactional on a protected self-invoked method in this
+ *     same class, which bypassed the proxy entirely.
  */
 @Component
 public class OutboxProcessor {
@@ -25,11 +25,12 @@ public class OutboxProcessor {
     private static final Logger log = LoggerFactory.getLogger(OutboxProcessor.class);
 
     private final OutboxEventRepository outboxRepository;
-    private final LedgerService ledgerService;
+    private final OutboxEventHandler eventHandler;
 
-    public OutboxProcessor(OutboxEventRepository outboxRepository, LedgerService ledgerService) {
+    public OutboxProcessor(OutboxEventRepository outboxRepository,
+                           OutboxEventHandler eventHandler) {
         this.outboxRepository = outboxRepository;
-        this.ledgerService = ledgerService;
+        this.eventHandler = eventHandler;
     }
 
     @Scheduled(fixedDelay = 5000)
@@ -37,35 +38,22 @@ public class OutboxProcessor {
         List<OutboxEvent> pending = outboxRepository
                 .findByStatusOrderByCreatedAtAsc(OutboxStatus.PENDING);
         for (OutboxEvent event : pending) {
-            process(event);
-        }
-    }
-
-    @Transactional
-    protected void process(OutboxEvent event) {
-        try {
-            dispatch(event);
-            event.setStatus(OutboxStatus.PROCESSED);
-            event.setProcessedAt(OffsetDateTime.now());
-        } catch (Exception ex) {
-            log.error("Failed to process outbox event {}: {}", event.getId(), ex.getMessage(), ex);
-            event.setStatus(OutboxStatus.FAILED);
-            event.setAttempts(event.getAttempts() + 1);
-        }
-        outboxRepository.save(event);
-    }
-
-    private void dispatch(OutboxEvent event) {
-        switch (event.getEventType()) {
-            case "PAYMENT_CAPTURED" -> {
-                UUID paymentId = UUID.fromString((String) event.getPayload().get("paymentId"));
-                ledgerService.postCapture(paymentId);
+            int claimed = outboxRepository.claimEvent(
+                    event.getId(), OutboxStatus.PENDING, OutboxStatus.PROCESSING);
+            if (claimed == 0) {
+                continue; // another tick already claimed this event
             }
-            case "REFUND_SETTLED" -> {
-                UUID refundId = UUID.fromString((String) event.getPayload().get("refundId"));
-                ledgerService.postRefund(refundId);
+            try {
+                // Cross-bean call → Spring proxy applies @Transactional on processInTransaction
+                eventHandler.processInTransaction(event.getId());
+            } catch (Exception ex) {
+                log.error("Outbox event {} failed; marking FAILED: {}", event.getId(), ex.getMessage(), ex);
+                try {
+                    outboxRepository.updateStatus(event.getId(), OutboxStatus.FAILED);
+                } catch (Exception markEx) {
+                    log.error("Could not mark event {} as FAILED: {}", event.getId(), markEx.getMessage(), markEx);
+                }
             }
-            default -> log.warn("Unknown outbox event type: {}", event.getEventType());
         }
     }
 }
