@@ -1,0 +1,47 @@
+# Wave 0 scaffold compose — brings up the only services that exist today:
+# Postgres + core-api. payments-sim / pay-web / ops-web are deferred (see
+# contracts/WAVE0_04_SCAFFOLD.md). core-api's application.yml keeps its localhost
+# datasource defaults for non-compose runs; here we override the host VIA ENVIRONMENT
+# so the same image works both ways.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: hotelops
+      POSTGRES_USER: hotelops
+      POSTGRES_PASSWORD: hotelops
+    volumes:
+      - hotelops-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hotelops -d hotelops"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  core-api:
+    build:
+      context: ./core-api
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Point the datasource at the db service host. application.yml is untouched
+      # (keeps localhost defaults); Spring's relaxed binding maps these env vars.
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/hotelops
+      SPRING_DATASOURCE_USERNAME: hotelops
+      SPRING_DATASOURCE_PASSWORD: hotelops
+    ports:
+      - "8080:8080"
+    healthcheck:
+      # curl is installed in the runtime image's Dockerfile; assert actuator reports UP.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+volumes:
+  hotelops-db-data:
