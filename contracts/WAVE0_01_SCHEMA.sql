@@ -496,6 +496,6 @@ COMMIT;
 -- =====================================================================================
 -- | Version | Date    | Author  | Change |
 -- |---------|---------|---------|--------|
--- | 0.1     | FROZEN  | (init)  | Initial schema drafted for sign-off. JTI Product;
+-- | 0.1     | (draft) | (init)  | Initial schema drafted for sign-off. JTI Product;
 -- |         |         |         | KV preferences; normalised finance; outbox; webhook inbox. |
 -- =====================================================================================

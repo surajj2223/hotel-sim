@@ -75,11 +75,17 @@ build does not mean the design decision was correct — only a frozen, reviewed 
 - `contracts/` — frozen seams + the audit. Read the relevant one before touching its area.
 - `docs/system-design/` — PRD site (HS-00..HS-08).
 
-## Status (keep current)
+## Status — do not duplicate it here
 
-- Stage 1 (customer + room booking, no money): **DONE**, HTTP-wired, on `main`.
-- Stage 2 (get paid): contracts `WAVE0_03` + `WAVE0_02` Stage 2 slice (`API-008..013`)
-  drafted; **freeze pending**. Payment/ledger domain code exists but is unwired and carries
-  GAP-1/GAP-2 (see audit) — to be fixed *as part of* the Stage 2 build, not separately.
-  `getRevenue` and other reporting reads are deferred to Stage 6; per-line posting
+**Freeze state lives in one place: `WAVE0_00_OVERVIEW.md` §1b (the Freeze Ledger). Consult
+it; never assume, and never record status anywhere else.** An artifact is buildable-against
+only when it shows `FROZEN` there. (The changelog's version column is a version number, not
+a status — do not write `FROZEN` into it.)
+
+Durable context that is *not* status (safe to keep here):
+- Stage 1 (customer + room booking, no money) is built and HTTP-wired on `main`.
+- Stage 2 (get paid) contracts are frozen but **not yet built**: API-008..013 + WHK-001..015.
+  The existing payment/ledger domain code is unwired and carries GAP-1 (per-line revenue) and
+  GAP-2 (outbox idempotency) — fix these *as part of* the Stage 2 build, per the audit.
+- `getRevenue` and other reporting reads are deferred to Stage 6. Per-line posting
   correctness is proven in Stage 2 by asserting `LedgerPosting` rows directly in tests.

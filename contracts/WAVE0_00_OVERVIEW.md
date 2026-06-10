@@ -52,6 +52,45 @@ Cross-references are explicit: an `API-` DTO that maps to a table cites the `SCH
 
 ---
 
+## 1b. Freeze Ledger (THE single source of truth for status)
+
+**This table is authoritative.** Every artifact's own status line, and every "status"
+mention in `CLAUDE.md`, defers to this. If an artifact's header disagrees with this table,
+this table wins and the header is the bug. Do not record freeze state anywhere else — in
+particular, the changelog's first column is a **version number**, never a status.
+
+A row is `FROZEN` only when (a) its content is reviewed and signed off, **and** (b) the
+freeze is recorded here with the commit that did it. "Built-against in practice" is noted
+where shipped code already depends on the artifact (which is itself why it is frozen).
+
+| Artifact | Slice / IDs | Status | Frozen-at | Evidence / notes |
+|----------|-------------|--------|-----------|------------------|
+| `WAVE0_01_SCHEMA.sql` | SCH-/ENM-/INV- (all) | **FROZEN** | pre-existing | `V1__wave0_schema.sql` applied; SCH-001..071 referenced in entities; entity tests pass. Change only via a new Flyway migration. |
+| `WAVE0_02_OPENAPI.yaml` | Stage 1 · API-001..007 | **FROZEN** | PR #6 (`ae63af2`) | Controllers + DTOs shipped; `BookingFlowApiTest` asserts the contract. |
+| `WAVE0_02_OPENAPI.yaml` | Stage 2 · API-008..013 | **FROZEN** | (this commit) | Payment paths + webhook receiver. No implementing code yet — clean freeze before the Stage 2 build. |
+| `WAVE0_03_WEBHOOK_PSP_CONTRACT.md` | WHK-001..015 | **FROZEN** | (this commit) | Pairs with API-008..013. Zero `WHK-` in code — implementation has not started. |
+| `WAVE0_04_SCAFFOLD.md` | SCF-001..004 | **FROZEN** | pre-existing | Actuator/health/compose shipped and running. |
+| `WAVE0_AUDIT.md` | — | RECORD (not a contract) | `ab83274` | Rationale for the Stage 2 contracts + the GAP-1/2 fixes; never "freezes". |
+
+> **FROZEN ≠ DONE.** An artifact being **FROZEN** (its contract is fixed) is separate from
+> its IDs being **DONE** (implemented + tested). Stage 2 here is FROZEN-but-not-built: the
+> contract is locked, the code is the next step, and GAP-1/GAP-2 (see audit) are fixed *as
+> part of* that build. Per-artifact verification logs track DONE per ID; this ledger tracks
+> freeze only.
+
+---
+
+## 1c. Reality note — Stage 1 already shipped
+
+The Wave 0 gate in §5 reads as if all parallel work waits for the full set. In practice the
+**Stage 1 vertical slice** (customer + room booking, no money) was built and merged against
+the frozen `01`/`02-Stage1`/`04` artifacts before the payment contracts existed — consistent
+with the freeze rule for those artifacts. The lapse not to repeat: payment/ledger
+*schema-backed code* was also added early, ahead of any `WHK-` contract (see `WAVE0_AUDIT.md`).
+The §1b ledger + the `CLAUDE.md` gate exist so no further code precedes a `FROZEN` row here.
+
+---
+
 ## 2. The mental model an implementing agent must hold
 
 - **`core-api` is the entire system.** All logic, all rules, all state. `ops-web` and the
@@ -136,4 +175,5 @@ One **integration owner** holds `docker-compose` + the end-to-end smoke test thr
 
 | Version | Date | Change |
 |---------|------|--------|
-| 0.1 | FROZEN   | Initial Wave 0 set drafted for sign-off. |
+| 0.1 | (draft) | Initial Wave 0 set drafted for sign-off. |
+| 0.2 | (this commit) | Added §1b Freeze Ledger (single source of truth) + §1c reality note. Recorded 01 / 02-Stage1 / 04 FROZEN (built-against); froze 02-Stage2 + 03. |

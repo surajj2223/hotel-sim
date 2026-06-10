@@ -6,7 +6,7 @@
 > `payments-sim` nor `core-api` payment orchestration may diverge from this without the
 > change protocol in `WAVE0_00 §4`.
 >
-> **Status:** `DRAFT` — for sign-off.
+> **Status:** `FROZEN` (authoritative status in `WAVE0_00 §1b` Freeze Ledger).
 > **Owner / arbiter:** Desk.
 > **Depends on:** `WAVE0_01_SCHEMA.sql` (enums `ENM-004..009`; tables `SCH-030..071`),
 > `WAVE0_02_OPENAPI.yaml` Stage 2 slice (`API-008..014`; freezes as a matched pair with this file).
@@ -228,8 +228,8 @@ PSP; PSP signature authenticates the *callback*.
 | Field | Value |
 |-------|-------|
 | Owner | Desk (arbiter) |
-| Status | `DRAFT` → (sign-off) → `FROZEN` → `IN-BUILD` → `DONE` |
-| Sign-off | ☐ pending |
+| Status | `FROZEN` (authoritative in `WAVE0_00 §1b`). Next: `IN-BUILD` when Stage 2 code starts. |
+| Sign-off | ☑ frozen this commit — implementation may proceed against WHK-001..015. |
 | Consumers | `payments-sim`, `pay-web`, `core-api` payment orchestration, integration owner |
 
 ## 9. Verification log
@@ -244,5 +244,5 @@ PSP; PSP signature authenticates the *callback*.
 
 | Version | Date | Change |
 |---------|------|--------|
-| 0.1 | FROZEN | Initial draft. Event vocabulary, envelope, transition table, per-line allocation (fill-by-line-order), two-layer idempotency, security boundary. Authored against existing payment/ledger code per `WAVE0_AUDIT`. |
-| 0.2 | FROZEN | Added §6a + WHK-015: async completion (`202`, webhook-completed) recorded as a decided choice, with a test-only synchronous webhook-drive seam in `payments-sim` for deterministic end-to-end tests. Updated dependency line — `WAVE0_02` Stage 2 slice now drafted, freezes as a matched pair. |
+| 0.1 | (draft) | Initial draft. Event vocabulary, envelope, transition table, per-line allocation (fill-by-line-order), two-layer idempotency, security boundary. Authored against existing payment/ledger code per `WAVE0_AUDIT`. |
+| 0.2 | (draft) | Added §6a + WHK-015: async completion (`202`, webhook-completed) recorded as a decided choice, with a test-only synchronous webhook-drive seam in `payments-sim` for deterministic end-to-end tests. Updated dependency line — `WAVE0_02` Stage 2 slice now drafted, freezes as a matched pair. |

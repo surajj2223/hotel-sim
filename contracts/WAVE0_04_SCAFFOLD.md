@@ -120,8 +120,8 @@ and a new `SCF-` row — via the change protocol in `WAVE0_00_OVERVIEW.md` §4, 
 ## 6. Accountability
 
 - **Owner:** integration owner.
-- **Status:** `DRAFT` → `FROZEN` on sign-off. (Wave 0 gate item, `WAVE0_00_OVERVIEW.md` §5.)
-- **Sign-off:** _pending._
+- **Status:** `FROZEN` (authoritative status in `WAVE0_00 §1b`). Scaffold shipped and running (SCF-001..004).
+- **Sign-off:** ☑ frozen — built-against.
 
 ### Verification log
 
@@ -138,4 +138,4 @@ and a new `SCF-` row — via the change protocol in `WAVE0_00_OVERVIEW.md` §4, 
 
 | Version | Date | Change |
 |---------|------|--------|
-| 0.1 | FROZEN   | Initial scaffold slice — Postgres + core-api only; deferred services noted. |
+| 0.1 | (draft) | Initial scaffold slice — Postgres + core-api only; deferred services noted. |

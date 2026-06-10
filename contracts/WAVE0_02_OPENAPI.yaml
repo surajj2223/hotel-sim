@@ -1016,7 +1016,7 @@ components:
           description: true if idempotencyKey already processed (WHK-005).
 x-requirements:
   stage: 1
-  status: DRAFT
+  status: FROZEN   # authoritative status in WAVE0_00 §1b; built-against (API-001..007, PR #6)
   items:
   - id: API-001
     requirement: Create customer; server mints shopperReference.
@@ -1067,7 +1067,7 @@ x-requirements:
     - SCH-022
 x-requirements-stage2:
   stage: 2
-  status: DRAFT
+  status: FROZEN   # authoritative status in WAVE0_00 §1b; frozen, not yet built (no API-008..013 code)
   pairsWith: WAVE0_03_WEBHOOK_PSP_CONTRACT.md
   items:
   - id: API-008
