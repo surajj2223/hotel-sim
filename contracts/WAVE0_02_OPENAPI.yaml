@@ -1,0 +1,456 @@
+openapi: 3.1.0
+
+# =====================================================================================
+# WAVE0_02_OPENAPI.yaml — core-api HTTP contract
+#
+# INCREMENTAL CONTRACT. This file grows feature-slice by feature-slice, NOT all at once.
+# Each slice is frozen when signed off; frozen paths/schemas are changed only via the
+# contract-change protocol in WAVE0_00_OVERVIEW.md §4 (flag -> arbitrate -> propagate).
+#
+# SLICE STATUS
+#   STAGE 1 (this slice): customer + room booking, end-to-end, NO money.
+#     Status : DRAFT  (-> FROZEN on sign-off)
+#     Covers : API-001..API-007  (see x-requirements block at the foot of this file)
+#     Maps to: SCH-001/002/003 (customer), SCH-010/011 (product/room),
+#              SCH-020/021/022 (booking/balance/line), INV-001, INV-003, INV-004
+#   Later slices append paths/schemas here and add their own API- IDs. Nothing in a
+#   frozen slice is edited to unblock a later one — flag instead.
+#
+# CONVENTIONS (apply to every slice)
+#   * Entities are NEVER serialised. Every request/response body is a DTO defined here.
+#   * Money is integer MINOR UNITS (pence) + a 3-letter currency code. No floats, ever.
+#   * shopperReference is opaque (SHPR-...) and read-only over the API (INV-001).
+#   * Amount roll-ups (totalAmount/amountPaid/amountRefunded/balance) are server-derived
+#     and READ-ONLY over the API (INV-004). Clients never send them.
+#   * Write-time revalidation failures return 409 with a StateConflict body (INV-003).
+#   * Timestamps are RFC 3339 / ISO-8601 with offset (maps to TIMESTAMPTZ).
+# =====================================================================================
+
+info:
+  title: Hospitality Operations Platform — core-api
+  version: 0.1.0-stage1
+  description: >
+    The single body behind two heads (ops-web and the future MCP). This document is the
+    contract both heads call. Stage 1 covers the customer + room-booking spine with no
+    payment. Every endpoint here must fully serve ops-web; no endpoint exists for the
+    agent alone.
+
+servers:
+  - url: http://localhost:8080
+    description: Local core-api (docker-compose)
+
+tags:
+  - name: customers
+    description: Customer identity, contact, and preferences (SCH-001..004).
+  - name: products
+    description: Bookable products; Stage 1 exposes room availability search (SCH-010/011).
+  - name: bookings
+    description: Folios and their lines (SCH-020/021/022).
+
+paths:
+
+  # ---------------------------------------------------------------------------
+  # API-001  Create customer  (POST /customers)            -> SCH-001/002, INV-001
+  # ---------------------------------------------------------------------------
+  /customers:
+    post:
+      operationId: createCustomer
+      tags: [customers]
+      summary: Create a customer; server mints the opaque shopperReference (INV-001).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerCreateRequest' }
+      responses:
+        '201':
+          description: Customer created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  # ---------------------------------------------------------------------------
+  # API-002  Get / search customers                        -> SCH-001
+  # ---------------------------------------------------------------------------
+  /customers/{customerId}:
+    get:
+      operationId: getCustomer
+      tags: [customers]
+      summary: Fetch a single customer by id.
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: The customer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------------------
+  # API-003  Set a customer preference  (PUT, upsert)      -> SCH-004
+  #          Stage 1 needs this so the room search can later be preference-aware.
+  # ---------------------------------------------------------------------------
+  /customers/{customerId}/preferences/{key}:
+    put:
+      operationId: setCustomerPreference
+      tags: [customers]
+      summary: Upsert one preference value for a key (one value per key, SCH-004).
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+        - name: key
+          in: path
+          required: true
+          schema: { type: string, example: floor }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PreferenceValue' }
+      responses:
+        '200':
+          description: Preference upserted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PreferenceResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------------------
+  # API-004  Search room availability                      -> SCH-010/011, INV-003 (read side)
+  #          Returns availability + the room attributes the model/operator judges on.
+  #          Stage 1 is rooms-only; later slices add ?vertical=SPA etc. on this same path.
+  # ---------------------------------------------------------------------------
+  /availability:
+    get:
+      operationId: searchAvailability
+      tags: [products]
+      summary: Rooms available in a window, with attributes (floor band, quiet, bed type).
+      parameters:
+        - name: vertical
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/Vertical' }
+          description: Stage 1 supports ROOM only; other values reserved for later slices.
+        - name: startsAt
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+        - name: endsAt
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+        - name: quantity
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, default: 1 }
+      responses:
+        '200':
+          description: Matching products with computed availability for the window.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AvailabilityResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  # ---------------------------------------------------------------------------
+  # API-005  Create booking (empty folio)  (POST /bookings) -> SCH-020
+  # ---------------------------------------------------------------------------
+  /bookings:
+    post:
+      operationId: createBooking
+      tags: [bookings]
+      summary: Open an empty folio for a customer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookingCreateRequest' }
+      responses:
+        '201':
+          description: Folio created (PENDING, no lines).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FolioResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------------------
+  # API-006  Add a line to a folio  (POST /bookings/{id}/lines)
+  #          -> SCH-022, INV-003 (revalidate availability + re-snapshot price), INV-004
+  # ---------------------------------------------------------------------------
+  /bookings/{bookingId}/lines:
+    post:
+      operationId: addBookingLine
+      tags: [bookings]
+      summary: >
+        Add a product line to a folio. Re-checks availability and price atomically at
+        write time (INV-003); on stale state returns 409 with current availability.
+      parameters:
+        - $ref: '#/components/parameters/BookingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookingLineCreateRequest' }
+      responses:
+        '201':
+          description: Line added; folio totals recomputed (INV-004).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FolioResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/StateConflict' }
+
+  # ---------------------------------------------------------------------------
+  # API-007  Get folio  (GET /bookings/{id})              -> SCH-020/021/022
+  # ---------------------------------------------------------------------------
+  /bookings/{bookingId}:
+    get:
+      operationId: getFolio
+      tags: [bookings]
+      summary: The folio with its lines and server-derived amounts (incl. balance).
+      parameters:
+        - $ref: '#/components/parameters/BookingId'
+      responses:
+        '200':
+          description: The folio.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FolioResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+
+  parameters:
+    CustomerId:
+      name: customerId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    BookingId:
+      name: bookingId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    BadRequest:
+      description: Malformed request.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    StateConflict:
+      description: >
+        Write-time revalidation failed: state moved since the caller's last read (INV-003).
+        Body carries current state so the caller can re-read and retry.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/StateConflict' }
+
+  schemas:
+
+    # --- shared enums (mirror ENM-001; SQL is authoritative) ------------------
+    Vertical:
+      type: string
+      enum: [ROOM, SPA, FNB, EVENT]
+      description: ENM-001. Stage 1 implements ROOM only.
+
+    BookingStatus:
+      type: string
+      enum: [PENDING, CONFIRMED, CANCELLED, COMPLETED]
+      description: ENM-002.
+
+    BookingLineStatus:
+      type: string
+      enum: [ACTIVE, CANCELLED, COMPLETED]
+      description: ENM-003.
+
+    # --- error envelope (shared by all slices) --------------------------------
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code:    { type: string, example: NOT_FOUND }
+        message: { type: string, example: 'Customer not found: 3f2a...' }
+      description: Standard error envelope for 4xx/5xx.
+
+    StateConflict:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+        - type: object
+          properties:
+            currentState:
+              description: >
+                Current truth at the moment the write was rejected — e.g. available
+                capacity, or the current price snapshot. Shape depends on what moved.
+              type: object
+              additionalProperties: true
+      description: Body of a 409 from INV-003 write-time revalidation.
+
+    # --- customer (SCH-001..004) ---------------------------------------------
+    CustomerCreateRequest:
+      type: object
+      required: [fullName]
+      properties:
+        fullName: { type: string, example: John Patel }
+        email:    { type: string, format: email, nullable: true }
+        phone:    { type: string, nullable: true }
+      description: >
+        shopperReference is NOT accepted here — the server mints it (INV-001).
+
+    CustomerResponse:
+      type: object
+      required: [id, shopperReference, fullName, createdAt]
+      properties:
+        id:               { type: string, format: uuid }
+        shopperReference: { type: string, readOnly: true, example: SHPR-9f2c... }
+        fullName:         { type: string }
+        email:            { type: string, nullable: true }
+        phone:            { type: string, nullable: true }
+        createdAt:        { type: string, format: date-time }
+
+    PreferenceValue:
+      type: object
+      required: [value]
+      properties:
+        value: { type: string, example: high }
+
+    PreferenceResponse:
+      type: object
+      required: [key, value]
+      properties:
+        key:   { type: string, example: floor }
+        value: { type: string, example: high }
+
+    # --- availability (SCH-010/011) ------------------------------------------
+    AvailabilityResult:
+      type: object
+      required: [productId, vertical, name, unitPrice, currency, availableUnits]
+      properties:
+        productId:      { type: string, format: uuid }
+        vertical:       { $ref: '#/components/schemas/Vertical' }
+        name:           { type: string, example: Deluxe King }
+        unitPrice:
+          type: integer
+          format: int64
+          description: Per-unit price for the window, MINOR UNITS (pence). Snapshot basis.
+          example: 18000
+        currency:       { type: string, minLength: 3, maxLength: 3, example: GBP }
+        availableUnits:
+          type: integer
+          description: Units free in the window after ACTIVE committed lines (INV-003 read).
+          example: 3
+        # Room attributes the operator/model judges on (preference-aware suggestion).
+        roomAttributes:
+          type: object
+          nullable: true
+          properties:
+            floorBand:    { type: string, nullable: true, example: HIGH }
+            bedType:      { type: string, nullable: true, example: KING }
+            quiet:        { type: boolean, example: true }
+            maxOccupancy: { type: integer, example: 2 }
+
+    # --- booking / folio (SCH-020/021/022) -----------------------------------
+    BookingCreateRequest:
+      type: object
+      required: [customerId]
+      properties:
+        customerId: { type: string, format: uuid }
+        currency:   { type: string, minLength: 3, maxLength: 3, default: GBP }
+
+    BookingLineCreateRequest:
+      type: object
+      required: [productId, startsAt, endsAt, quantity]
+      properties:
+        productId: { type: string, format: uuid }
+        startsAt:  { type: string, format: date-time }
+        endsAt:    { type: string, format: date-time }
+        quantity:  { type: integer, minimum: 1, example: 3, description: nights / covers / seats }
+      description: >
+        Caller does NOT send price. The server re-snapshots the current price via the
+        vertical strategy at write time (INV-003).
+
+    BookingLineResponse:
+      type: object
+      required: [id, productId, vertical, status, startsAt, endsAt, quantity, unitPrice, lineAmount, currency]
+      properties:
+        id:        { type: string, format: uuid }
+        productId: { type: string, format: uuid }
+        vertical:  { $ref: '#/components/schemas/Vertical' }
+        status:    { $ref: '#/components/schemas/BookingLineStatus' }
+        startsAt:  { type: string, format: date-time }
+        endsAt:    { type: string, format: date-time }
+        quantity:  { type: integer }
+        unitPrice: { type: integer, format: int64, description: Minor units; snapshot. }
+        lineAmount:
+          type: integer
+          format: int64
+          description: unitPrice * quantity, minor units (DB CHECK enforces equality).
+        currency:  { type: string, minLength: 3, maxLength: 3 }
+
+    FolioResponse:
+      type: object
+      required: [id, customerId, status, currency, totalAmount, amountPaid, amountRefunded, balance, lines]
+      properties:
+        id:         { type: string, format: uuid }
+        customerId: { type: string, format: uuid }
+        status:     { $ref: '#/components/schemas/BookingStatus' }
+        currency:   { type: string, minLength: 3, maxLength: 3 }
+        totalAmount:    { type: integer, format: int64, readOnly: true, description: 'INV-004; minor units.' }
+        amountPaid:     { type: integer, format: int64, readOnly: true, description: 'INV-004; 0 until Stage 2.' }
+        amountRefunded: { type: integer, format: int64, readOnly: true, description: 'INV-004.' }
+        balance:
+          type: integer
+          format: int64
+          readOnly: true
+          description: 'Derived: totalAmount - amountPaid + amountRefunded (SCH-021). Paid == balance 0.'
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/BookingLineResponse' }
+
+# =====================================================================================
+# x-requirements — Stage 1 slice. ID | requirement | acceptance | maps-to
+# =====================================================================================
+x-requirements:
+  stage: 1
+  status: DRAFT
+  items:
+    - id: API-001
+      requirement: Create customer; server mints shopperReference.
+      acceptance: 201 with SHPR- prefixed shopperReference; request cannot set it (INV-001).
+      mapsTo: [SCH-001, SCH-002, INV-001]
+    - id: API-002
+      requirement: Fetch a customer by id.
+      acceptance: 200 with CustomerResponse; 404 ApiError when absent.
+      mapsTo: [SCH-001]
+    - id: API-003
+      requirement: Upsert one preference value per key.
+      acceptance: PUT is idempotent; second PUT same key overwrites value (SCH-004).
+      mapsTo: [SCH-004]
+    - id: API-004
+      requirement: Search room availability for a window.
+      acceptance: Returns availableUnits computed from ACTIVE lines + room attributes; ROOM only in Stage 1.
+      mapsTo: [SCH-010, SCH-011, INV-003]
+    - id: API-005
+      requirement: Open an empty folio for a customer.
+      acceptance: 201 PENDING folio, zero lines, all amounts 0.
+      mapsTo: [SCH-020]
+    - id: API-006
+      requirement: Add a room line; revalidate availability + price at write time.
+      acceptance: >
+        201 with recomputed totals (INV-004); 409 StateConflict carrying currentState
+        when availability/price moved (INV-003).
+      mapsTo: [SCH-022, INV-003, INV-004]
+    - id: API-007
+      requirement: Read a folio with lines and derived amounts.
+      acceptance: 200 FolioResponse; balance == total - paid + refunded (SCH-021).
+      mapsTo: [SCH-020, SCH-021, SCH-022]
+
+# x-changelog
+#   0.1.0-stage1 (DRAFT): initial Stage 1 slice — customer + room booking, no money.
