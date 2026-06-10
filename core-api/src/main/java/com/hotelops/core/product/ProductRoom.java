@@ -1,5 +1,6 @@
 package com.hotelops.core.product;
 
+import com.hotelops.core.common.enums.Vertical;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -20,6 +21,11 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 public class ProductRoom extends Product {
+
+    // Mirror the JTI discriminator into the read-only vertical field so getVertical()
+    // is correct immediately after construction, before any reload (the field is
+    // insertable=false/updatable=false, so Hibernate never sets it on insert).
+    { setVertical(Vertical.ROOM); }
 
     /** e.g. 'LOW', 'MID', 'HIGH' */
     @Column(name = "floor_band")

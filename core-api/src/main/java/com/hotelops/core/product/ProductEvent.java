@@ -1,5 +1,6 @@
 package com.hotelops.core.product;
 
+import com.hotelops.core.common.enums.Vertical;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -21,6 +22,9 @@ import java.time.OffsetDateTime;
 @Setter
 @NoArgsConstructor
 public class ProductEvent extends Product {
+
+    // See ProductRoom: mirror the JTI discriminator so getVertical() is correct pre-reload.
+    { setVertical(Vertical.EVENT); }
 
     @Column(name = "departs_at", nullable = false)
     private OffsetDateTime departsAt;

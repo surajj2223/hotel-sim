@@ -6,6 +6,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import org.hibernate.annotations.Immutable;
+import org.hibernate.annotations.Synchronize;
 
 import java.util.UUID;
 
@@ -20,6 +21,9 @@ import java.util.UUID;
 @Entity
 @Table(name = "booking_balance")
 @Immutable
+// The view reads from booking; declare the dependency so Hibernate flushes pending
+// booking changes before querying this view (otherwise same-transaction reads miss them).
+@Synchronize("booking")
 @Getter
 public class BookingBalance {
 
