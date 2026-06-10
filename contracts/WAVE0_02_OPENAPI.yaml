@@ -1,149 +1,127 @@
+# MERGED Stage 1 + Stage 2 (generated). getRevenue deferred to Stage 6.
 openapi: 3.1.0
-
-# =====================================================================================
-# WAVE0_02_OPENAPI.yaml — core-api HTTP contract
-#
-# INCREMENTAL CONTRACT. This file grows feature-slice by feature-slice, NOT all at once.
-# Each slice is frozen when signed off; frozen paths/schemas are changed only via the
-# contract-change protocol in WAVE0_00_OVERVIEW.md §4 (flag -> arbitrate -> propagate).
-#
-# SLICE STATUS
-#   STAGE 1 (this slice): customer + room booking, end-to-end, NO money.
-#     Status : DRAFT  (-> FROZEN on sign-off)
-#     Covers : API-001..API-007  (see x-requirements block at the foot of this file)
-#     Maps to: SCH-001/002/003 (customer), SCH-010/011 (product/room),
-#              SCH-020/021/022 (booking/balance/line), INV-001, INV-003, INV-004
-#   Later slices append paths/schemas here and add their own API- IDs. Nothing in a
-#   frozen slice is edited to unblock a later one — flag instead.
-#
-# CONVENTIONS (apply to every slice)
-#   * Entities are NEVER serialised. Every request/response body is a DTO defined here.
-#   * Money is integer MINOR UNITS (pence) + a 3-letter currency code. No floats, ever.
-#   * shopperReference is opaque (SHPR-...) and read-only over the API (INV-001).
-#   * Amount roll-ups (totalAmount/amountPaid/amountRefunded/balance) are server-derived
-#     and READ-ONLY over the API (INV-004). Clients never send them.
-#   * Write-time revalidation failures return 409 with a StateConflict body (INV-003).
-#   * Timestamps are RFC 3339 / ISO-8601 with offset (maps to TIMESTAMPTZ).
-# =====================================================================================
-
 info:
-  title: Hospitality Operations Platform — core-api
-  version: 0.1.0-stage1
-  description: >
-    The single body behind two heads (ops-web and the future MCP). This document is the
-    contract both heads call. Stage 1 covers the customer + room-booking spine with no
-    payment. Every endpoint here must fully serve ops-web; no endpoint exists for the
-    agent alone.
+  title: "Hospitality Operations Platform \u2014 core-api"
+  version: 0.2.0-stage2
+  description: 'The single body behind two heads (ops-web and the future MCP). This document is the contract
+    both heads call. Stage 1 covers the customer + room-booking spine with no payment. Every endpoint
+    here must fully serve ops-web; no endpoint exists for the agent alone.
 
+    '
 servers:
-  - url: http://localhost:8080
-    description: Local core-api (docker-compose)
-
+- url: http://localhost:8080
+  description: Local core-api (docker-compose)
 tags:
-  - name: customers
-    description: Customer identity, contact, and preferences (SCH-001..004).
-  - name: products
-    description: Bookable products; Stage 1 exposes room availability search (SCH-010/011).
-  - name: bookings
-    description: Folios and their lines (SCH-020/021/022).
-
+- name: customers
+  description: Customer identity, contact, and preferences (SCH-001..004).
+- name: products
+  description: Bookable products; Stage 1 exposes room availability search (SCH-010/011).
+- name: bookings
+  description: Folios and their lines (SCH-020/021/022).
+- name: payments
+  description: Payment links, capture, cancel-auth (SCH-030..033). Human-gated writes (INV-007).
+- name: webhooks
+  description: Inbound PSP event sink (SCH-070/071); machine-to-machine, signature-authenticated.
 paths:
-
-  # ---------------------------------------------------------------------------
-  # API-001  Create customer  (POST /customers)            -> SCH-001/002, INV-001
-  # ---------------------------------------------------------------------------
   /customers:
     post:
       operationId: createCustomer
-      tags: [customers]
+      tags:
+      - customers
       summary: Create a customer; server mints the opaque shopperReference (INV-001).
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CustomerCreateRequest' }
+            schema:
+              $ref: '#/components/schemas/CustomerCreateRequest'
       responses:
         '201':
           description: Customer created.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CustomerResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-
-  # ---------------------------------------------------------------------------
-  # API-002  Get / search customers                        -> SCH-001
-  # ---------------------------------------------------------------------------
+              schema:
+                $ref: '#/components/schemas/CustomerResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
   /customers/{customerId}:
     get:
       operationId: getCustomer
-      tags: [customers]
+      tags:
+      - customers
       summary: Fetch a single customer by id.
       parameters:
-        - $ref: '#/components/parameters/CustomerId'
+      - $ref: '#/components/parameters/CustomerId'
       responses:
         '200':
           description: The customer.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/CustomerResponse' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  # ---------------------------------------------------------------------------
-  # API-003  Set a customer preference  (PUT, upsert)      -> SCH-004
-  #          Stage 1 needs this so the room search can later be preference-aware.
-  # ---------------------------------------------------------------------------
+              schema:
+                $ref: '#/components/schemas/CustomerResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /customers/{customerId}/preferences/{key}:
     put:
       operationId: setCustomerPreference
-      tags: [customers]
+      tags:
+      - customers
       summary: Upsert one preference value for a key (one value per key, SCH-004).
       parameters:
-        - $ref: '#/components/parameters/CustomerId'
-        - name: key
-          in: path
-          required: true
-          schema: { type: string, example: floor }
+      - $ref: '#/components/parameters/CustomerId'
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          example: floor
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/PreferenceValue' }
+            schema:
+              $ref: '#/components/schemas/PreferenceValue'
       responses:
         '200':
           description: Preference upserted.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PreferenceResponse' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  # ---------------------------------------------------------------------------
-  # API-004  Search room availability                      -> SCH-010/011, INV-003 (read side)
-  #          Returns availability + the room attributes the model/operator judges on.
-  #          Stage 1 is rooms-only; later slices add ?vertical=SPA etc. on this same path.
-  # ---------------------------------------------------------------------------
+              schema:
+                $ref: '#/components/schemas/PreferenceResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /availability:
     get:
       operationId: searchAvailability
-      tags: [products]
+      tags:
+      - products
       summary: Rooms available in a window, with attributes (floor band, quiet, bed type).
       parameters:
-        - name: vertical
-          in: query
-          required: true
-          schema: { $ref: '#/components/schemas/Vertical' }
-          description: Stage 1 supports ROOM only; other values reserved for later slices.
-        - name: startsAt
-          in: query
-          required: true
-          schema: { type: string, format: date-time }
-        - name: endsAt
-          in: query
-          required: true
-          schema: { type: string, format: date-time }
-        - name: quantity
-          in: query
-          required: false
-          schema: { type: integer, minimum: 1, default: 1 }
+      - name: vertical
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/Vertical'
+        description: Stage 1 supports ROOM only; other values reserved for later slices.
+      - name: startsAt
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+      - name: endsAt
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+      - name: quantity
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
       responses:
         '200':
           description: Matching products with computed availability for the window.
@@ -151,306 +129,996 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/AvailabilityResult' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-
-  # ---------------------------------------------------------------------------
-  # API-005  Create booking (empty folio)  (POST /bookings) -> SCH-020
-  # ---------------------------------------------------------------------------
+                items:
+                  $ref: '#/components/schemas/AvailabilityResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
   /bookings:
     post:
       operationId: createBooking
-      tags: [bookings]
+      tags:
+      - bookings
       summary: Open an empty folio for a customer.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/BookingCreateRequest' }
+            schema:
+              $ref: '#/components/schemas/BookingCreateRequest'
       responses:
         '201':
           description: Folio created (PENDING, no lines).
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/FolioResponse' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  # ---------------------------------------------------------------------------
-  # API-006  Add a line to a folio  (POST /bookings/{id}/lines)
-  #          -> SCH-022, INV-003 (revalidate availability + re-snapshot price), INV-004
-  # ---------------------------------------------------------------------------
+              schema:
+                $ref: '#/components/schemas/FolioResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /bookings/{bookingId}/lines:
     post:
       operationId: addBookingLine
-      tags: [bookings]
-      summary: >
-        Add a product line to a folio. Re-checks availability and price atomically at
-        write time (INV-003); on stale state returns 409 with current availability.
+      tags:
+      - bookings
+      summary: 'Add a product line to a folio. Re-checks availability and price atomically at write time
+        (INV-003); on stale state returns 409 with current availability.
+
+        '
       parameters:
-        - $ref: '#/components/parameters/BookingId'
+      - $ref: '#/components/parameters/BookingId'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/BookingLineCreateRequest' }
+            schema:
+              $ref: '#/components/schemas/BookingLineCreateRequest'
       responses:
         '201':
           description: Line added; folio totals recomputed (INV-004).
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/FolioResponse' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/StateConflict' }
-
-  # ---------------------------------------------------------------------------
-  # API-007  Get folio  (GET /bookings/{id})              -> SCH-020/021/022
-  # ---------------------------------------------------------------------------
+              schema:
+                $ref: '#/components/schemas/FolioResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/StateConflict'
   /bookings/{bookingId}:
     get:
       operationId: getFolio
-      tags: [bookings]
+      tags:
+      - bookings
       summary: The folio with its lines and server-derived amounts (incl. balance).
       parameters:
-        - $ref: '#/components/parameters/BookingId'
+      - $ref: '#/components/parameters/BookingId'
       responses:
         '200':
           description: The folio.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/FolioResponse' }
-        '404': { $ref: '#/components/responses/NotFound' }
+              schema:
+                $ref: '#/components/schemas/FolioResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /bookings/{bookingId}/payments:
+    post:
+      operationId: createPaymentLink
+      tags:
+      - payments
+      summary: Create a payment (link) against a folio; PSP mints the paymentLinkId.
+      parameters:
+      - $ref: '#/components/parameters/BookingId'
+      - $ref: '#/components/parameters/HumanAuth'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentLinkCreateRequest'
+      responses:
+        '201':
+          description: Payment created (PENDING); paymentLinkId returned for the hosted page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/StateConflict'
+        '428':
+          $ref: '#/components/responses/HumanAuthRequired'
+    get:
+      operationId: listBookingPayments
+      tags:
+      - payments
+      summary: List all payments (and their refunds) on a folio. Read; not gated.
+      parameters:
+      - $ref: '#/components/parameters/BookingId'
+      responses:
+        '200':
+          description: Payments on the folio.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PaymentResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /payments/{paymentId}:
+    get:
+      operationId: getPayment
+      tags:
+      - payments
+      summary: A single payment with amounts, status, references, and refunds.
+      parameters:
+      - $ref: '#/components/parameters/PaymentId'
+      responses:
+        '200':
+          description: The payment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /payments/{paymentId}/capture:
+    post:
+      operationId: capturePayment
+      tags:
+      - payments
+      summary: Capture an authorised payment (full or partial). Single capture only (INV-005).
+      parameters:
+      - $ref: '#/components/parameters/PaymentId'
+      - $ref: '#/components/parameters/HumanAuth'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaptureRequest'
+      responses:
+        '202':
+          description: 'Capture requested at the PSP. Payment reflects the request; final state and ledger
+            postings land on the CAPTURE webhook (INV-006). Returns the payment.
 
+            '
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/StateConflict'
+        '428':
+          $ref: '#/components/responses/HumanAuthRequired'
+  /payments/{paymentId}/cancel:
+    post:
+      operationId: cancelAuthorisation
+      tags:
+      - payments
+      summary: Cancel an uncaptured authorisation. No ledger effect (INV-006).
+      parameters:
+      - $ref: '#/components/parameters/PaymentId'
+      - $ref: '#/components/parameters/HumanAuth'
+      responses:
+        '202':
+          description: Cancellation requested; CANCELLATION webhook confirms. Returns payment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/StateConflict'
+        '428':
+          $ref: '#/components/responses/HumanAuthRequired'
+  /payments/{paymentId}/refunds:
+    post:
+      operationId: refundPayment
+      tags:
+      - payments
+      summary: Refund part or all of a captured payment (child of the payment).
+      parameters:
+      - $ref: '#/components/parameters/PaymentId'
+      - $ref: '#/components/parameters/HumanAuth'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundRequest'
+      responses:
+        '202':
+          description: 'Refund requested at the PSP (Refund PENDING). REFUND webhook (WHK-009) settles
+            it and drives per-line REFUND_REVERSAL postings. Returns the refund.
+
+            '
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/StateConflict'
+        '428':
+          $ref: '#/components/responses/HumanAuthRequired'
+  /webhooks/psp:
+    post:
+      operationId: receivePspWebhook
+      tags:
+      - webhooks
+      summary: Inbound PSP event sink. Idempotent; signature-authenticated (WHK-014).
+      parameters:
+      - $ref: '#/components/parameters/PspSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PspWebhookEvent'
+      responses:
+        '200':
+          description: "Event accepted (or recognised as a duplicate \u2014 WHK-005, same 200, no second\
+            \ effect). Body acknowledges receipt.\n"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookAck'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Missing or invalid X-PSP-Signature (WHK-014).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
 components:
-
   parameters:
     CustomerId:
       name: customerId
       in: path
       required: true
-      schema: { type: string, format: uuid }
+      schema:
+        type: string
+        format: uuid
     BookingId:
       name: bookingId
       in: path
       required: true
-      schema: { type: string, format: uuid }
+      schema:
+        type: string
+        format: uuid
+    PaymentId:
+      name: paymentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    HumanAuth:
+      name: X-Human-Auth
+      in: header
+      required: true
+      schema:
+        type: string
+      description: 'INV-007 human-authorisation token. Present + non-blank = a human confirmed this repercussive
+        write (ops-web click or agent "yes"). The caller cannot self-mint it. Absent/blank -> 428.
 
+        '
+    PspSignature:
+      name: X-PSP-Signature
+      in: header
+      required: true
+      schema:
+        type: string
+      description: "WHK-014 \u2014 HMAC over the raw request body with the shared PSP secret."
   responses:
     BadRequest:
       description: Malformed request.
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/ApiError' }
+          schema:
+            $ref: '#/components/schemas/ApiError'
     NotFound:
       description: Resource not found.
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/ApiError' }
+          schema:
+            $ref: '#/components/schemas/ApiError'
     StateConflict:
-      description: >
-        Write-time revalidation failed: state moved since the caller's last read (INV-003).
+      description: 'Write-time revalidation failed: state moved since the caller''s last read (INV-003).
         Body carries current state so the caller can re-read and retry.
+
+        '
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/StateConflict' }
+          schema:
+            $ref: '#/components/schemas/StateConflict'
+    HumanAuthRequired:
+      description: 'INV-007: a repercussive write was attempted without a human-authorisation signal.
+        Maps to HTTP 428 Precondition Required (HumanAuthRequiredException).
 
+        '
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
   schemas:
-
-    # --- shared enums (mirror ENM-001; SQL is authoritative) ------------------
     Vertical:
       type: string
-      enum: [ROOM, SPA, FNB, EVENT]
+      enum:
+      - ROOM
+      - SPA
+      - FNB
+      - EVENT
       description: ENM-001. Stage 1 implements ROOM only.
-
     BookingStatus:
       type: string
-      enum: [PENDING, CONFIRMED, CANCELLED, COMPLETED]
+      enum:
+      - PENDING
+      - CONFIRMED
+      - CANCELLED
+      - COMPLETED
       description: ENM-002.
-
     BookingLineStatus:
       type: string
-      enum: [ACTIVE, CANCELLED, COMPLETED]
+      enum:
+      - ACTIVE
+      - CANCELLED
+      - COMPLETED
       description: ENM-003.
-
-    # --- error envelope (shared by all slices) --------------------------------
     ApiError:
       type: object
-      required: [code, message]
+      required:
+      - code
+      - message
       properties:
-        code:    { type: string, example: NOT_FOUND }
-        message: { type: string, example: 'Customer not found: 3f2a...' }
+        code:
+          type: string
+          example: NOT_FOUND
+        message:
+          type: string
+          example: 'Customer not found: 3f2a...'
       description: Standard error envelope for 4xx/5xx.
-
     StateConflict:
       allOf:
-        - $ref: '#/components/schemas/ApiError'
-        - type: object
-          properties:
-            currentState:
-              description: >
-                Current truth at the moment the write was rejected — e.g. available
-                capacity, or the current price snapshot. Shape depends on what moved.
-              type: object
-              additionalProperties: true
+      - $ref: '#/components/schemas/ApiError'
+      - type: object
+        properties:
+          currentState:
+            description: "Current truth at the moment the write was rejected \u2014 e.g. available capacity,\
+              \ or the current price snapshot. Shape depends on what moved.\n"
+            type: object
+            additionalProperties: true
       description: Body of a 409 from INV-003 write-time revalidation.
-
-    # --- customer (SCH-001..004) ---------------------------------------------
     CustomerCreateRequest:
       type: object
-      required: [fullName]
+      required:
+      - fullName
       properties:
-        fullName: { type: string, example: John Patel }
-        email:    { type: string, format: email, nullable: true }
-        phone:    { type: string, nullable: true }
-      description: >
-        shopperReference is NOT accepted here — the server mints it (INV-001).
-
+        fullName:
+          type: string
+          example: John Patel
+        email:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+      description: "shopperReference is NOT accepted here \u2014 the server mints it (INV-001).\n"
     CustomerResponse:
       type: object
-      required: [id, shopperReference, fullName, createdAt]
+      required:
+      - id
+      - shopperReference
+      - fullName
+      - createdAt
       properties:
-        id:               { type: string, format: uuid }
-        shopperReference: { type: string, readOnly: true, example: SHPR-9f2c... }
-        fullName:         { type: string }
-        email:            { type: string, nullable: true }
-        phone:            { type: string, nullable: true }
-        createdAt:        { type: string, format: date-time }
-
+        id:
+          type: string
+          format: uuid
+        shopperReference:
+          type: string
+          readOnly: true
+          example: SHPR-9f2c...
+        fullName:
+          type: string
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
     PreferenceValue:
       type: object
-      required: [value]
+      required:
+      - value
       properties:
-        value: { type: string, example: high }
-
+        value:
+          type: string
+          example: high
     PreferenceResponse:
       type: object
-      required: [key, value]
+      required:
+      - key
+      - value
       properties:
-        key:   { type: string, example: floor }
-        value: { type: string, example: high }
-
-    # --- availability (SCH-010/011) ------------------------------------------
+        key:
+          type: string
+          example: floor
+        value:
+          type: string
+          example: high
     AvailabilityResult:
       type: object
-      required: [productId, vertical, name, unitPrice, currency, availableUnits]
+      required:
+      - productId
+      - vertical
+      - name
+      - unitPrice
+      - currency
+      - availableUnits
       properties:
-        productId:      { type: string, format: uuid }
-        vertical:       { $ref: '#/components/schemas/Vertical' }
-        name:           { type: string, example: Deluxe King }
+        productId:
+          type: string
+          format: uuid
+        vertical:
+          $ref: '#/components/schemas/Vertical'
+        name:
+          type: string
+          example: Deluxe King
         unitPrice:
           type: integer
           format: int64
           description: Per-unit price for the window, MINOR UNITS (pence). Snapshot basis.
           example: 18000
-        currency:       { type: string, minLength: 3, maxLength: 3, example: GBP }
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          example: GBP
         availableUnits:
           type: integer
           description: Units free in the window after ACTIVE committed lines (INV-003 read).
           example: 3
-        # Room attributes the operator/model judges on (preference-aware suggestion).
         roomAttributes:
           type: object
           nullable: true
           properties:
-            floorBand:    { type: string, nullable: true, example: HIGH }
-            bedType:      { type: string, nullable: true, example: KING }
-            quiet:        { type: boolean, example: true }
-            maxOccupancy: { type: integer, example: 2 }
-
-    # --- booking / folio (SCH-020/021/022) -----------------------------------
+            floorBand:
+              type: string
+              nullable: true
+              example: HIGH
+            bedType:
+              type: string
+              nullable: true
+              example: KING
+            quiet:
+              type: boolean
+              example: true
+            maxOccupancy:
+              type: integer
+              example: 2
     BookingCreateRequest:
       type: object
-      required: [customerId]
+      required:
+      - customerId
       properties:
-        customerId: { type: string, format: uuid }
-        currency:   { type: string, minLength: 3, maxLength: 3, default: GBP }
-
+        customerId:
+          type: string
+          format: uuid
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          default: GBP
     BookingLineCreateRequest:
       type: object
-      required: [productId, startsAt, endsAt, quantity]
+      required:
+      - productId
+      - startsAt
+      - endsAt
+      - quantity
       properties:
-        productId: { type: string, format: uuid }
-        startsAt:  { type: string, format: date-time }
-        endsAt:    { type: string, format: date-time }
-        quantity:  { type: integer, minimum: 1, example: 3, description: nights / covers / seats }
-      description: >
-        Caller does NOT send price. The server re-snapshots the current price via the
-        vertical strategy at write time (INV-003).
+        productId:
+          type: string
+          format: uuid
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+        quantity:
+          type: integer
+          minimum: 1
+          example: 3
+          description: nights / covers / seats
+      description: 'Caller does NOT send price. The server re-snapshots the current price via the vertical
+        strategy at write time (INV-003).
 
+        '
     BookingLineResponse:
       type: object
-      required: [id, productId, vertical, status, startsAt, endsAt, quantity, unitPrice, lineAmount, currency]
+      required:
+      - id
+      - productId
+      - vertical
+      - status
+      - startsAt
+      - endsAt
+      - quantity
+      - unitPrice
+      - lineAmount
+      - currency
       properties:
-        id:        { type: string, format: uuid }
-        productId: { type: string, format: uuid }
-        vertical:  { $ref: '#/components/schemas/Vertical' }
-        status:    { $ref: '#/components/schemas/BookingLineStatus' }
-        startsAt:  { type: string, format: date-time }
-        endsAt:    { type: string, format: date-time }
-        quantity:  { type: integer }
-        unitPrice: { type: integer, format: int64, description: Minor units; snapshot. }
+        id:
+          type: string
+          format: uuid
+        productId:
+          type: string
+          format: uuid
+        vertical:
+          $ref: '#/components/schemas/Vertical'
+        status:
+          $ref: '#/components/schemas/BookingLineStatus'
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+        quantity:
+          type: integer
+        unitPrice:
+          type: integer
+          format: int64
+          description: Minor units; snapshot.
         lineAmount:
           type: integer
           format: int64
           description: unitPrice * quantity, minor units (DB CHECK enforces equality).
-        currency:  { type: string, minLength: 3, maxLength: 3 }
-
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
     FolioResponse:
       type: object
-      required: [id, customerId, status, currency, totalAmount, amountPaid, amountRefunded, balance, lines]
+      required:
+      - id
+      - customerId
+      - status
+      - currency
+      - totalAmount
+      - amountPaid
+      - amountRefunded
+      - balance
+      - lines
       properties:
-        id:         { type: string, format: uuid }
-        customerId: { type: string, format: uuid }
-        status:     { $ref: '#/components/schemas/BookingStatus' }
-        currency:   { type: string, minLength: 3, maxLength: 3 }
-        totalAmount:    { type: integer, format: int64, readOnly: true, description: 'INV-004; minor units.' }
-        amountPaid:     { type: integer, format: int64, readOnly: true, description: 'INV-004; 0 until Stage 2.' }
-        amountRefunded: { type: integer, format: int64, readOnly: true, description: 'INV-004.' }
+        id:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/BookingStatus'
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        totalAmount:
+          type: integer
+          format: int64
+          readOnly: true
+          description: INV-004; minor units.
+        amountPaid:
+          type: integer
+          format: int64
+          readOnly: true
+          description: INV-004; 0 until Stage 2.
+        amountRefunded:
+          type: integer
+          format: int64
+          readOnly: true
+          description: INV-004.
         balance:
           type: integer
           format: int64
           readOnly: true
-          description: 'Derived: totalAmount - amountPaid + amountRefunded (SCH-021). Paid == balance 0.'
+          description: 'Derived: totalAmount - amountPaid + amountRefunded (SCH-021). Paid == balance
+            0.'
         lines:
           type: array
-          items: { $ref: '#/components/schemas/BookingLineResponse' }
+          items:
+            $ref: '#/components/schemas/BookingLineResponse'
+    CaptureMode:
+      type: string
+      enum:
+      - IMMEDIATE
+      - MANUAL
+      description: ENM-004. Defaulted by the vertical strategy; overridable per payment.
+    PaymentStatus:
+      type: string
+      enum:
+      - PENDING
+      - AUTHORISED
+      - CAPTURED
+      - CAPTURE_FAILED
+      - CANCELLED
+      - AUTH_EXPIRED
+      - PARTIALLY_REFUNDED
+      - REFUNDED
+      - FAILED
+      description: ENM-005.
+    RefundStatus:
+      type: string
+      enum:
+      - PENDING
+      - REFUNDED
+      - REFUND_FAILED
+      description: ENM-006.
+    PspEventCode:
+      type: string
+      enum:
+      - AUTHORISATION
+      - CAPTURE
+      - CAPTURE_FAILED
+      - CANCELLATION
+      - REFUND
+      - REFUND_FAILED
+      - AUTH_EXPIRY
+      description: ENM-007. Full payload contract in WAVE0_03.
+    PaymentLinkCreateRequest:
+      type: object
+      required:
+      - amount
+      properties:
+        amount:
+          type: integer
+          format: int64
+          description: Amount to request, minor units. Typically the folio balance.
+          example: 70000
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          default: GBP
+        captureMode:
+          allOf:
+          - $ref: '#/components/schemas/CaptureMode'
+          description: 'Optional override. Omitted -> defaulted from the booking''s vertical strategy
+            (Rooms MANUAL, F&B IMMEDIATE). merchantReference is server-minted (not accepted).
 
-# =====================================================================================
-# x-requirements — Stage 1 slice. ID | requirement | acceptance | maps-to
-# =====================================================================================
+            '
+    PaymentResponse:
+      type: object
+      required:
+      - id
+      - bookingId
+      - status
+      - captureMode
+      - currency
+      - amountRequested
+      - amountAuthorised
+      - amountCaptured
+      - amountRefunded
+      - merchantReference
+      - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        bookingId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        captureMode:
+          $ref: '#/components/schemas/CaptureMode'
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        amountRequested:
+          type: integer
+          format: int64
+        amountAuthorised:
+          type: integer
+          format: int64
+          description: 0 until AUTHORISATION webhook.
+        amountCaptured:
+          type: integer
+          format: int64
+          description: 0 until CAPTURE (INV-006).
+        amountRefunded:
+          type: integer
+          format: int64
+        shopperReference:
+          type: string
+          readOnly: true
+          description: Copied from customer; opaque.
+        merchantReference:
+          type: string
+          readOnly: true
+          description: Server-minted reconciliation anchor (SCH-031).
+        pspReference:
+          type: string
+          nullable: true
+          readOnly: true
+          description: PSP-minted on AUTHORISATION.
+        paymentLinkId:
+          type: string
+          nullable: true
+          readOnly: true
+          description: PSP-minted on link creation.
+        authExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        refunds:
+          type: array
+          items:
+            $ref: '#/components/schemas/RefundResponse'
+    CaptureRequest:
+      type: object
+      properties:
+        amount:
+          type: integer
+          format: int64
+          nullable: true
+          description: 'Minor units to capture. Omitted = full (capture amountAuthorised). Must be <=
+            amountAuthorised (SCH-032). Single capture only (INV-005).
+
+            '
+          example: 54000
+    RefundRequest:
+      type: object
+      required:
+      - amount
+      properties:
+        amount:
+          type: integer
+          format: int64
+          description: Minor units to refund. Must be <= (captured - alreadyRefunded) (SCH-033).
+          example: 6000
+        reason:
+          type: string
+          nullable: true
+          example: "Goodwill \u2014 late check-in"
+    RefundResponse:
+      type: object
+      required:
+      - id
+      - paymentId
+      - amount
+      - currency
+      - status
+      - merchantReference
+      - originalReference
+      - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        paymentId:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+          format: int64
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        status:
+          $ref: '#/components/schemas/RefundStatus'
+        merchantReference:
+          type: string
+          readOnly: true
+        pspReference:
+          type: string
+          nullable: true
+          readOnly: true
+          description: PSP-minted on REFUND webhook.
+        originalReference:
+          type: string
+          readOnly: true
+          description: Parent payment's pspReference (chain).
+        reason:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    PspWebhookEvent:
+      type: object
+      required:
+      - eventId
+      - eventCode
+      - idempotencyKey
+      - merchantReference
+      - amount
+      - currency
+      - occurredAt
+      - success
+      properties:
+        eventId:
+          type: string
+          description: PSP's id for this event delivery.
+        eventCode:
+          $ref: '#/components/schemas/PspEventCode'
+        idempotencyKey:
+          type: string
+          description: Stable across redeliveries (WHK-003); dedupe key (SCH-071).
+        merchantReference:
+          type: string
+          description: Matches a Payment (WHK-004).
+        pspReference:
+          type: string
+          nullable: true
+          description: Present from AUTHORISATION onward.
+        amount:
+          type: integer
+          format: int64
+          description: "Meaning per eventCode \u2014 see WAVE0_03 \xA73."
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        occurredAt:
+          type: string
+          format: date-time
+        success:
+          type: boolean
+          description: false for *_FAILED variants.
+        authExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: AUTHORISATION only.
+        originalReference:
+          type: string
+          nullable: true
+          description: REFUND / REFUND_FAILED only.
+        refundMerchantReference:
+          type: string
+          nullable: true
+          description: "REFUND events \u2014 matches a Refund (WHK-004)."
+        reason:
+          type: string
+          nullable: true
+          description: '*_FAILED variants.'
+    WebhookAck:
+      type: object
+      required:
+      - received
+      properties:
+        received:
+          type: boolean
+          example: true
+        duplicate:
+          type: boolean
+          example: false
+          description: true if idempotencyKey already processed (WHK-005).
 x-requirements:
   stage: 1
   status: DRAFT
   items:
-    - id: API-001
-      requirement: Create customer; server mints shopperReference.
-      acceptance: 201 with SHPR- prefixed shopperReference; request cannot set it (INV-001).
-      mapsTo: [SCH-001, SCH-002, INV-001]
-    - id: API-002
-      requirement: Fetch a customer by id.
-      acceptance: 200 with CustomerResponse; 404 ApiError when absent.
-      mapsTo: [SCH-001]
-    - id: API-003
-      requirement: Upsert one preference value per key.
-      acceptance: PUT is idempotent; second PUT same key overwrites value (SCH-004).
-      mapsTo: [SCH-004]
-    - id: API-004
-      requirement: Search room availability for a window.
-      acceptance: Returns availableUnits computed from ACTIVE lines + room attributes; ROOM only in Stage 1.
-      mapsTo: [SCH-010, SCH-011, INV-003]
-    - id: API-005
-      requirement: Open an empty folio for a customer.
-      acceptance: 201 PENDING folio, zero lines, all amounts 0.
-      mapsTo: [SCH-020]
-    - id: API-006
-      requirement: Add a room line; revalidate availability + price at write time.
-      acceptance: >
-        201 with recomputed totals (INV-004); 409 StateConflict carrying currentState
-        when availability/price moved (INV-003).
-      mapsTo: [SCH-022, INV-003, INV-004]
-    - id: API-007
-      requirement: Read a folio with lines and derived amounts.
-      acceptance: 200 FolioResponse; balance == total - paid + refunded (SCH-021).
-      mapsTo: [SCH-020, SCH-021, SCH-022]
+  - id: API-001
+    requirement: Create customer; server mints shopperReference.
+    acceptance: 201 with SHPR- prefixed shopperReference; request cannot set it (INV-001).
+    mapsTo:
+    - SCH-001
+    - SCH-002
+    - INV-001
+  - id: API-002
+    requirement: Fetch a customer by id.
+    acceptance: 200 with CustomerResponse; 404 ApiError when absent.
+    mapsTo:
+    - SCH-001
+  - id: API-003
+    requirement: Upsert one preference value per key.
+    acceptance: PUT is idempotent; second PUT same key overwrites value (SCH-004).
+    mapsTo:
+    - SCH-004
+  - id: API-004
+    requirement: Search room availability for a window.
+    acceptance: Returns availableUnits computed from ACTIVE lines + room attributes; ROOM only in Stage
+      1.
+    mapsTo:
+    - SCH-010
+    - SCH-011
+    - INV-003
+  - id: API-005
+    requirement: Open an empty folio for a customer.
+    acceptance: 201 PENDING folio, zero lines, all amounts 0.
+    mapsTo:
+    - SCH-020
+  - id: API-006
+    requirement: Add a room line; revalidate availability + price at write time.
+    acceptance: '201 with recomputed totals (INV-004); 409 StateConflict carrying currentState when availability/price
+      moved (INV-003).
 
-# x-changelog
-#   0.1.0-stage1 (DRAFT): initial Stage 1 slice — customer + room booking, no money.
+      '
+    mapsTo:
+    - SCH-022
+    - INV-003
+    - INV-004
+  - id: API-007
+    requirement: Read a folio with lines and derived amounts.
+    acceptance: 200 FolioResponse; balance == total - paid + refunded (SCH-021).
+    mapsTo:
+    - SCH-020
+    - SCH-021
+    - SCH-022
+x-requirements-stage2:
+  stage: 2
+  status: DRAFT
+  pairsWith: WAVE0_03_WEBHOOK_PSP_CONTRACT.md
+  items:
+  - id: API-008
+    requirement: Create a payment link against a folio; PSP mints paymentLinkId.
+    acceptance: '201 PaymentResponse, status PENDING, server-minted merchantReference, captureMode defaulted
+      from vertical strategy when omitted; X-Human-Auth required else 428 (INV-007).
+
+      '
+    mapsTo:
+    - SCH-030
+    - SCH-031
+    - INV-007
+  - id: API-009
+    requirement: Read a single payment with amounts, references, and refunds.
+    acceptance: 200 PaymentResponse; 404 when absent.
+    mapsTo:
+    - SCH-030
+  - id: API-010
+    requirement: Capture an authorised payment, full or partial; single capture only.
+    acceptance: '202 PaymentResponse; second capture -> 409 (INV-005); amount > authorised -> 409 (SCH-032);
+      ledger postings happen on the CAPTURE webhook, not here (INV-006); X-Human-Auth required else 428.
+
+      '
+    mapsTo:
+    - SCH-032
+    - INV-005
+    - INV-006
+    - INV-007
+  - id: API-011
+    requirement: Cancel an uncaptured authorisation.
+    acceptance: 202; cancel after capture -> 409; no ledger effect (INV-006); X-Human-Auth else 428.
+    mapsTo:
+    - INV-006
+    - INV-007
+  - id: API-012
+    requirement: Refund part/all of a captured payment as a child Refund.
+    acceptance: '202 RefundResponse with originalReference chain; amount > remaining capturable -> 409
+      (SCH-033); reversal postings on the REFUND webhook; X-Human-Auth else 428.
+
+      '
+    mapsTo:
+    - SCH-033
+    - SCH-040
+    - SCH-051
+    - INV-006
+    - INV-007
+  - id: API-013
+    requirement: Inbound PSP webhook receiver; idempotent; signature-authenticated.
+    acceptance: "200 WebhookAck; duplicate idempotencyKey -> 200 with duplicate=true and no second effect\
+      \ (WHK-005); invalid X-PSP-Signature -> 401 (WHK-014); transitions per WAVE0_03 \xA74.\n"
+    mapsTo:
+    - SCH-070
+    - SCH-071
+    - INV-006
