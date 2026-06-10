@@ -82,6 +82,7 @@ class CustomerEntityTest extends AbstractDataJpaTest {
         Customer c = customerRepository.save(buildCustomer("SHPR-cascadetest01", "Frank"));
         CustomerPreference p = new CustomerPreference();
         p.setCustomer(c);
+        c.getPreferences().add(p);   // sync both sides so the ORM cascade (cascade=ALL) removes it on delete
         p.setPrefKey("dietary");
         p.setPrefValue("vegan");
         preferenceRepository.save(p);
