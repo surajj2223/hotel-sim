@@ -1,5 +1,6 @@
 package com.hotelops.core.product;
 
+import com.hotelops.core.common.enums.Vertical;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -19,6 +20,9 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 public class ProductSpa extends Product {
+
+    // See ProductRoom: mirror the JTI discriminator so getVertical() is correct pre-reload.
+    { setVertical(Vertical.SPA); }
 
     /** e.g. 'MASSAGE_60', 'FACIAL_45' */
     @Column(name = "treatment_kind", nullable = false)
