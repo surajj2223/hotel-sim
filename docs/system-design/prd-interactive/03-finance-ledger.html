@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HS-03 Finance &amp; Ledger — Hospitality Ops Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+
+<header class="prd-header">
+  <div class="container">
+    <a href="../index.html" class="back-link">← System Design Hub</a>
+    <div class="prd-id">HS-03 · Finance &amp; Ledger</div>
+    <h1>Finance &amp; Ledger</h1>
+    <div class="prd-folio-line">
+      <span class="folio-field"><strong>Version</strong> 0.1</span>
+      <span class="folio-field"><strong>Date</strong> 2026-06-10</span>
+      <span class="folio-field"><strong>Owner</strong> Track C</span>
+      <span class="folio-field">
+        <strong>Contract</strong>&nbsp;
+        <span class="badge badge-draft">Draft</span>
+      </span>
+      <span class="folio-field">
+        <strong>Build</strong>&nbsp;
+        <span class="badge badge-not-started">Not Started</span>
+      </span>
+      <span class="folio-field"><strong>Freezes</strong> Capture modes · Posting rules · Refunds · Reference taxonomy</span>
+    </div>
+  </div>
+</header>
+
+<nav class="tab-bar" aria-label="PRD sections">
+  <a href="#overview" class="active" onclick="switchTab(event,'overview')">Overview</a>
+  <a href="#capture-modes" onclick="switchTab(event,'capture-modes')">Capture Modes</a>
+  <a href="#postings" onclick="switchTab(event,'postings')">Postings</a>
+  <a href="#refunds" onclick="switchTab(event,'refunds')">Refunds</a>
+  <a href="#drift-log" onclick="switchTab(event,'drift-log')">Contract-Drift Log</a>
+</nav>
+
+<!-- Overview -->
+<section class="tab-panel active main-content" id="panel-overview">
+  <div class="card card-teal" style="margin-bottom:1.5rem;">
+    <h4>First-class feature</h4>
+    <p>
+      Finance is a <strong>first-class showcase feature</strong>, not credibility dressing.
+      The ledger is fully traceable from booking through to PSP transaction, reportable by
+      vertical, and correctly handles partial capture, partial refunds, and multi-payment folios.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h2>Payment reference taxonomy</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th>Reference</th><th>Minted by</th><th>Meaning</th><th>Mutability</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>shopperReference</code></td>
+          <td><code>core-api</code></td>
+          <td>Stable customer identifier sent to PSP; on Customer entity.</td>
+          <td>Immutable — never changes.</td>
+        </tr>
+        <tr>
+          <td><code>merchantReference</code></td>
+          <td><code>core-api</code></td>
+          <td>Our reference per <strong>payment attempt</strong>; reconciliation anchor.</td>
+          <td>Immutable per attempt.</td>
+        </tr>
+        <tr>
+          <td><code>pspReference</code></td>
+          <td><code>payments-sim</code></td>
+          <td>PSP's own transaction id; returned on first webhook.</td>
+          <td>Minted by PSP; we store and never alter.</td>
+        </tr>
+        <tr>
+          <td><code>paymentLinkId</code></td>
+          <td><code>payments-sim</code></td>
+          <td>PSP's id for a hosted payment link.</td>
+          <td>Minted by PSP; we store and never alter.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="card card-brass" style="margin-top:0.75rem;">
+      <h4>Reconciliation key</h4>
+      <p>Reconciliation anchors on <code>merchantReference</code>. Customer continuity across stays anchors on <code>shopperReference</code>.</p>
+    </div>
+  </div>
+
+  <div class="content-block">
+    <h2>Amount tracking on Booking</h2>
+    <table class="data-table">
+      <thead><tr><th>Field</th><th>Formula</th></tr></thead>
+      <tbody>
+        <tr><td><code>totalAmount</code></td><td>Sum of all BookingLine price snapshots</td></tr>
+        <tr><td><code>amountPaid</code></td><td>Sum of all captures across all Payments for this Booking</td></tr>
+        <tr><td><code>amountRefunded</code></td><td>Sum of all Refunds across all Payments</td></tr>
+        <tr><td><code>balance</code></td><td><code>totalAmount − amountPaid + amountRefunded</code></td></tr>
+      </tbody>
+    </table>
+    <div class="card card-teal" style="margin-top:0.75rem;">
+      <h4>Paid = <code>balance == 0</code></h4>
+      <p>One Booking may have many Payments. A Payment settles exactly one Booking. No many-to-many.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Capture Modes -->
+<section class="tab-panel main-content" id="panel-capture-modes">
+  <div class="content-block">
+    <h2>Capture modes</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th>Mode</th><th>Behaviour</th><th>Revenue posting</th><th>Default vertical</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>IMMEDIATE</code></td>
+          <td>Auth and capture happen together.</td>
+          <td>Posts at auth+capture moment.</td>
+          <td>F&amp;B</td>
+        </tr>
+        <tr>
+          <td><code>MANUAL</code></td>
+          <td>Auth now (card hold), capture later via explicit operator action.</td>
+          <td>Posts only at capture time.</td>
+          <td>Rooms</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="card card-brass" style="margin-top:1rem;">
+      <h4>Default is a default</h4>
+      <p>
+        The capture mode default is supplied by the vertical strategy (<code>defaultCaptureMode()</code>),
+        but it is explicit and overridable on the payment request. The caller may always specify
+        a different mode.
+      </p>
+    </div>
+  </div>
+
+  <div class="content-block">
+    <h2>Partial capture</h2>
+    <div class="card card-teal">
+      <h4>In scope</h4>
+      <p>
+        Authorise £600, capture £540, release the rest. One auth → at most one capture.
+        The remainder is released automatically.
+      </p>
+    </div>
+    <div class="card card-oxblood" style="margin-top:0.75rem;">
+      <h4>Out of scope</h4>
+      <p>Multi-capture and incremental auth. One auth, one capture — that is the contract.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Postings -->
+<section class="tab-panel main-content" id="panel-postings">
+  <div class="content-block">
+    <h2>Ledger posting rules</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th>Event</th><th>Ledger effect</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Auth (<code>MANUAL</code>)</td>
+          <td><strong>No posting.</strong> Auth is a hold, not revenue.</td>
+          <td>Auth ≠ revenue.</td>
+        </tr>
+        <tr>
+          <td>Capture (<code>MANUAL</code>)</td>
+          <td>Posts revenue entry for the captured amount.</td>
+          <td>Carries <code>pspReference</code> + <code>merchantReference</code>.</td>
+        </tr>
+        <tr>
+          <td>Auth+Capture (<code>IMMEDIATE</code>)</td>
+          <td>Posts revenue entry atomically.</td>
+          <td>Same as capture — happens in one step.</td>
+        </tr>
+        <tr>
+          <td>Cancel uncaptured auth</td>
+          <td><strong>No reversal.</strong> Nothing was posted.</td>
+          <td>Cancelling an uncaptured auth → no ledger entry.</td>
+        </tr>
+        <tr>
+          <td>Refund</td>
+          <td>Posts reversal entry (reduces net revenue).</td>
+          <td>Linked to original via <code>originalReference</code>.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="content-block">
+    <h2>Outbox / Event Log decoupling</h2>
+    <div class="step-flow">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body"><p>A payment event (capture, refund) writes atomically to the <code>outbox</code> table in the same transaction.</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body"><p>The ledger service reads the outbox and applies the posting.</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body"><p>Idempotency: the outbox entry carries the <code>pspReference</code>. Duplicate processing is a no-op.</p></div>
+      </div>
+    </div>
+    <p style="font-size:0.875rem;margin-top:0.75rem;">
+      This avoids distributed transaction concerns while keeping the ledger eventually
+      consistent with the payment state.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h2>Revenue reporting</h2>
+    <p style="font-size:0.875rem;">
+      Revenue is reportable <strong>by vertical</strong> via <code>getRevenue(window, groupBy)</code>.
+      Refunds correctly reduce net revenue via the reversal posting. All postings carry
+      both <code>pspReference</code> and <code>merchantReference</code> for full traceability.
+    </p>
+  </div>
+</section>
+
+<!-- Refunds -->
+<section class="tab-panel main-content" id="panel-refunds">
+  <div class="content-block">
+    <h2>Refund model</h2>
+    <ul style="font-size:0.875rem;padding-left:1.25rem;line-height:1.8;">
+      <li>A <code>Refund</code> is a one-to-many child of <code>Payment</code>.</li>
+      <li>Each refund has its own <code>pspReference</code>.</li>
+      <li>Linked to the parent payment via <code>originalReference</code> (the parent/child PSP chain).</li>
+      <li><strong>Partial refunds supported.</strong></li>
+      <li>Cannot refund more than the captured amount.</li>
+      <li>Refund posts a reversal entry to the ledger.</li>
+    </ul>
+  </div>
+
+  <div class="content-block">
+    <h2>Refund chain example</h2>
+    <pre>Payment  (pspReference: PSP-abc123)
+  └─ Refund  (pspReference: PSP-def456,  originalReference: PSP-abc123)
+  └─ Refund  (pspReference: PSP-ghi789,  originalReference: PSP-abc123)</pre>
+    <p style="font-size:0.875rem;margin-top:0.75rem;">
+      Each refund traces back to the original payment via <code>originalReference</code>.
+      The ledger service creates a reversal entry for each refund that reaches <code>REFUNDED</code> state.
+    </p>
+  </div>
+</section>
+
+<!-- Drift Log -->
+<section class="tab-panel main-content" id="panel-drift-log">
+  <div class="card card-oxblood" style="margin-bottom:1.5rem;">
+    <h4>Standing rule</h4>
+    <p>
+      Frozen contracts may not drift silently. Any deviation a builder must make is recorded
+      here with date, the clause affected, what changed, and why. Until a row is arbitrated
+      and the contract re-frozen, <strong>the code is the source of truth for that clause.</strong>
+    </p>
+  </div>
+  <div class="drift-log">
+    <div class="drift-log-header">Contract-Drift Log — HS-03</div>
+    <div class="drift-log-empty">No drift recorded. Contract and code are in agreement.</div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  HS-03 · Finance &amp; Ledger · <span class="ref">prd-interactive/03-finance-ledger.html</span>
+  &nbsp;·&nbsp; <a href="../index.html">↑ Hub</a>
+</footer>
+
+<script>
+  function switchTab(e, id) {
+    e.preventDefault();
+    document.querySelectorAll('.tab-bar a').forEach(a => a.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    e.currentTarget.classList.add('active');
+    document.getElementById('panel-' + id).classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+</script>
+</body>
+</html>
