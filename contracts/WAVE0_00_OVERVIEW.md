@@ -136,4 +136,4 @@ One **integration owner** holds `docker-compose` + the end-to-end smoke test thr
 
 | Version | Date | Change |
 |---------|------|--------|
-| 0.1 | (draft) | Initial Wave 0 set drafted for sign-off. |
+| 0.1 | FROZEN   | Initial Wave 0 set drafted for sign-off. |

@@ -138,4 +138,4 @@ and a new `SCF-` row — via the change protocol in `WAVE0_00_OVERVIEW.md` §4, 
 
 | Version | Date | Change |
 |---------|------|--------|
-| 0.1 | (draft) | Initial scaffold slice — Postgres + core-api only; deferred services noted. |
+| 0.1 | FROZEN   | Initial scaffold slice — Postgres + core-api only; deferred services noted. |

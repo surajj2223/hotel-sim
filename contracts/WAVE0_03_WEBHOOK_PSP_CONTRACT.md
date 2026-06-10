@@ -244,5 +244,5 @@ PSP; PSP signature authenticates the *callback*.
 
 | Version | Date | Change |
 |---------|------|--------|
-| 0.1 | (draft) | Initial draft. Event vocabulary, envelope, transition table, per-line allocation (fill-by-line-order), two-layer idempotency, security boundary. Authored against existing payment/ledger code per `WAVE0_AUDIT`. |
-| 0.2 | (draft) | Added §6a + WHK-015: async completion (`202`, webhook-completed) recorded as a decided choice, with a test-only synchronous webhook-drive seam in `payments-sim` for deterministic end-to-end tests. Updated dependency line — `WAVE0_02` Stage 2 slice now drafted, freezes as a matched pair. |
+| 0.1 | FROZEN | Initial draft. Event vocabulary, envelope, transition table, per-line allocation (fill-by-line-order), two-layer idempotency, security boundary. Authored against existing payment/ledger code per `WAVE0_AUDIT`. |
+| 0.2 | FROZEN | Added §6a + WHK-015: async completion (`202`, webhook-completed) recorded as a decided choice, with a test-only synchronous webhook-drive seam in `payments-sim` for deterministic end-to-end tests. Updated dependency line — `WAVE0_02` Stage 2 slice now drafted, freezes as a matched pair. |
