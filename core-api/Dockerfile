@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
-# ---- Stage 1: build the bootJar with the Gradle wrapper on a JDK 17 base ----
-FROM eclipse-temurin:17-jdk-jammy AS build
+# ---- Stage 1: build the bootJar with the Gradle wrapper on a JDK 21 base ----
+FROM eclipse-temurin:21-jdk-jammy AS build
 WORKDIR /workspace
 
 # Copy the wrapper first so dependency resolution can cache across source-only changes.
@@ -14,8 +14,8 @@ RUN chmod +x ./gradlew
 COPY src ./src
 RUN ./gradlew --no-daemon bootJar -x test
 
-# ---- Stage 2: run the jar on a slim JRE 17 base ----
-FROM eclipse-temurin:17-jre-jammy AS runtime
+# ---- Stage 2: run the jar on a slim JRE 21 base ----
+FROM eclipse-temurin:21-jre-jammy AS runtime
 WORKDIR /app
 
 # curl is not in the base image; the compose healthcheck probes /actuator/health with it.
