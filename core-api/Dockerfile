@@ -18,6 +18,11 @@ RUN ./gradlew --no-daemon bootJar -x test
 FROM eclipse-temurin:17-jre-jammy AS runtime
 WORKDIR /app
 
+# curl is not in the base image; the compose healthcheck probes /actuator/health with it.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Non-root runtime user.
 RUN useradd --system --uid 10001 --create-home appuser
 USER appuser
