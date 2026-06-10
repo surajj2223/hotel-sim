@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HS-04 Payments &amp; PSP Integration — Hospitality Ops Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+
+<header class="prd-header">
+  <div class="container">
+    <a href="../index.html" class="back-link">← System Design Hub</a>
+    <div class="prd-id">HS-04 · Payments &amp; PSP Integration</div>
+    <h1>Payments &amp; PSP Integration</h1>
+    <div class="prd-folio-line">
+      <span class="folio-field"><strong>Version</strong> 0.1</span>
+      <span class="folio-field"><strong>Date</strong> 2026-06-10</span>
+      <span class="folio-field"><strong>Owner</strong> Track D + Track E</span>
+      <span class="folio-field">
+        <strong>Contract</strong>&nbsp;
+        <span class="badge badge-draft">Draft</span>
+      </span>
+      <span class="folio-field">
+        <strong>Build</strong>&nbsp;
+        <span class="badge badge-not-started">Not Started</span>
+      </span>
+      <span class="folio-field"><strong>Freezes</strong> Reference taxonomy · Payment-link flow · Webhook vocabulary · Idempotency</span>
+    </div>
+  </div>
+</header>
+
+<nav class="tab-bar" aria-label="PRD sections">
+  <a href="#overview" class="active" onclick="switchTab(event,'overview')">Overview</a>
+  <a href="#flow" onclick="switchTab(event,'flow')">Payment Flow</a>
+  <a href="#webhooks" onclick="switchTab(event,'webhooks')">Webhooks</a>
+  <a href="#idempotency" onclick="switchTab(event,'idempotency')">Idempotency</a>
+  <a href="#components" onclick="switchTab(event,'components')">Components</a>
+  <a href="#drift-log" onclick="switchTab(event,'drift-log')">Contract-Drift Log</a>
+</nav>
+
+<!-- Overview -->
+<section class="tab-panel active main-content" id="panel-overview">
+  <div class="card card-teal" style="margin-bottom:1.5rem;">
+    <h4>Real HTTP integration — by design</h4>
+    <p>
+      <code>payments-sim</code> is a separate Spring Boot service. <code>core-api</code>
+      integrates with it over real HTTP + webhooks. This is deliberate — to simulate a real
+      PSP integration, not a mock. The same discipline would apply to a real Adyen integration.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h2>Reference taxonomy</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th>Reference</th><th>Minted by</th><th>Sent by us</th><th>Returned by PSP</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>shopperReference</code></td>
+          <td><code>core-api</code></td>
+          <td>Yes (on link creation)</td>
+          <td>Echoed</td>
+          <td>Customer continuity across stays</td>
+        </tr>
+        <tr>
+          <td><code>merchantReference</code></td>
+          <td><code>core-api</code></td>
+          <td>Yes (on link creation)</td>
+          <td>Echoed</td>
+          <td>Reconciliation anchor per payment attempt</td>
+        </tr>
+        <tr>
+          <td><code>pspReference</code></td>
+          <td><code>payments-sim</code></td>
+          <td>No</td>
+          <td>Yes (first webhook)</td>
+          <td>PSP transaction id; stamped on Payment record</td>
+        </tr>
+        <tr>
+          <td><code>paymentLinkId</code></td>
+          <td><code>payments-sim</code></td>
+          <td>No</td>
+          <td>Yes (link creation response)</td>
+          <td>Hosted checkout link id</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Flow -->
+<section class="tab-panel main-content" id="panel-flow">
+  <div class="content-block">
+    <h2>Payment-link flow</h2>
+    <div class="step-flow">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <p><strong>Caller creates payment.</strong> <code>ops-web</code> or MCP calls
+            <code>POST /bookings/{id}/payments</code> with <code>shopperReference</code>,
+            <code>merchantReference</code>, <code>amount</code>, <code>captureMode</code>.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <p><strong>core-api creates Payment record</strong> (status: <code>PENDING_LINK</code>)
+            and calls <code>POST /payment-links</code> on <code>payments-sim</code>.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <p><strong>payments-sim mints <code>paymentLinkId</code></strong> and returns
+            <code>{ paymentLinkId, checkoutUrl }</code>. <code>core-api</code> stores
+            <code>paymentLinkId</code> on the Payment and returns the checkout URL to the caller.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <p><strong>Customer visits <code>pay-web</code></strong> (hosted checkout) and completes payment.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <p><strong>payments-sim fires webhook</strong> to <code>core-api /webhooks/payment</code>.
+            For <code>IMMEDIATE</code>: fires <code>AUTHORISATION</code> then <code>CAPTURE</code>.
+            For <code>MANUAL</code>: fires <code>AUTHORISATION</code> only; <code>CAPTURE</code>
+            follows when operator explicitly captures.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">6</div>
+        <div class="step-body">
+          <p><strong>core-api handles webhook idempotently:</strong> matches by <code>merchantReference</code>,
+            stamps <code>pspReference</code>, updates Payment status, posts to ledger via outbox.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="content-block">
+    <h2>Flow diagram</h2>
+    <pre>ops-web / MCP
+     │  POST /bookings/{id}/payments
+     ▼
+core-api ──────────────────► payments-sim
+     │   POST /payment-links       │
+     │                             │  returns { paymentLinkId, checkoutUrl }
+     │◄────────────────────────────┘
+     │
+     │  customer visits pay-web
+     │
+     ▼
+payments-sim fires webhook ──► core-api /webhooks/payment
+  AUTHORISATION / CAPTURE           │  idempotent: match merchantReference,
+  REFUND / CANCELLATION             │  stamp pspReference, post to ledger</pre>
+  </div>
+</section>
+
+<!-- Webhooks -->
+<section class="tab-panel main-content" id="panel-webhooks">
+  <div class="content-block">
+    <h2>Webhook event vocabulary</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th>Event code</th><th>Triggered when</th><th>core-api response</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>AUTHORISATION</code></td>
+          <td>PSP authorises the payment</td>
+          <td>Stamp <code>pspReference</code>; status → <code>AUTHORISED</code></td>
+        </tr>
+        <tr>
+          <td><code>AUTHORISATION_FAILED</code></td>
+          <td>Authorisation declined</td>
+          <td>Status → <code>FAILED</code></td>
+        </tr>
+        <tr>
+          <td><code>CAPTURE</code></td>
+          <td>Payment captured</td>
+          <td>Post revenue to ledger; status → <code>CAPTURED</code></td>
+        </tr>
+        <tr>
+          <td><code>CAPTURE_FAILED</code></td>
+          <td>Capture attempt failed</td>
+          <td>Status → <code>CAPTURE_FAILED</code></td>
+        </tr>
+        <tr>
+          <td><code>CANCELLATION</code></td>
+          <td>Auth cancelled before capture</td>
+          <td>Status → <code>CANCELLED</code>; no ledger reversal</td>
+        </tr>
+        <tr>
+          <td><code>REFUND</code></td>
+          <td>Refund settled by PSP</td>
+          <td>Post reversal to ledger; Refund → <code>REFUNDED</code></td>
+        </tr>
+        <tr>
+          <td><code>REFUND_FAILED</code></td>
+          <td>Refund attempt failed</td>
+          <td>Refund → <code>REFUND_FAILED</code></td>
+        </tr>
+        <tr>
+          <td><code>OFFER_CLOSED</code></td>
+          <td>Auth expired with no capture</td>
+          <td>Status → <code>EXPIRED</code>; no ledger reversal</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="font-size:0.875rem;margin-top:0.75rem;">
+      All webhook payloads echo <code>merchantReference</code>, <code>pspReference</code>, and <code>shopperReference</code>.
+    </p>
+  </div>
+</section>
+
+<!-- Idempotency -->
+<section class="tab-panel main-content" id="panel-idempotency">
+  <div class="content-block">
+    <h2>Idempotency rules</h2>
+    <div class="step-flow">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body"><p>Webhooks carry a <code>pspReference</code>-derived idempotency key.</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body"><p><code>core-api</code> matches inbound webhook to a <code>Payment</code> by <code>merchantReference</code>.</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body"><p>If a webhook with the same <code>pspReference</code> and event code has already been processed, the handler returns <code>200 OK</code> with no state change.</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body"><p>Duplicate processing is a <strong>no-op</strong> — never double-posts to the ledger.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Components -->
+<section class="tab-panel main-content" id="panel-components">
+  <div class="content-block">
+    <h2>payments-sim</h2>
+    <table class="data-table">
+      <thead><tr><th>Attribute</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>Stack</td><td>Spring Boot</td></tr>
+        <tr><td>Port</td><td><code>9090</code></td></tr>
+        <tr><td>References accepted</td><td><code>shopperReference</code>, <code>merchantReference</code> (stores, does not invent)</td></tr>
+        <tr><td>References minted</td><td><code>pspReference</code> (<code>PSP-…</code>), <code>paymentLinkId</code> (<code>PL-…</code>)</td></tr>
+        <tr><td>Webhook events fired</td><td>All event codes in the table above</td></tr>
+        <tr><td>Health</td><td><code>GET /actuator/health</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="content-block">
+    <h2>pay-web</h2>
+    <table class="data-table">
+      <thead><tr><th>Attribute</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>Stack</td><td>React</td></tr>
+        <tr><td>Port</td><td><code>3001</code></td></tr>
+        <tr><td>Role</td><td>Simulated hosted checkout. Customer-facing UI that triggers the AUTHORISATION webhook.</td></tr>
+        <tr><td>On "Pay" click</td><td>Calls <code>payments-sim</code> to fire the webhook. No real card processing.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="content-block">
+    <h2>Out of scope</h2>
+    <div class="scope-list">
+      <span class="scope-tag out">Real PSP (Adyen/Stripe)</span>
+      <span class="scope-tag out">Real card data</span>
+      <span class="scope-tag out">3DS / SCA</span>
+      <span class="scope-tag out">Multi-capture</span>
+      <span class="scope-tag out">Link expiry enforcement</span>
+    </div>
+  </div>
+</section>
+
+<!-- Drift Log -->
+<section class="tab-panel main-content" id="panel-drift-log">
+  <div class="card card-oxblood" style="margin-bottom:1.5rem;">
+    <h4>Standing rule</h4>
+    <p>
+      Frozen contracts may not drift silently. Any deviation a builder must make is recorded
+      here with date, the clause affected, what changed, and why. Until a row is arbitrated
+      and the contract re-frozen, <strong>the code is the source of truth for that clause.</strong>
+    </p>
+  </div>
+  <div class="drift-log">
+    <div class="drift-log-header">Contract-Drift Log — HS-04</div>
+    <div class="drift-log-empty">No drift recorded. Contract and code are in agreement.</div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  HS-04 · Payments &amp; PSP Integration · <span class="ref">prd-interactive/04-payments-psp.html</span>
+  &nbsp;·&nbsp; <a href="../index.html">↑ Hub</a>
+</footer>
+
+<script>
+  function switchTab(e, id) {
+    e.preventDefault();
+    document.querySelectorAll('.tab-bar a').forEach(a => a.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    e.currentTarget.classList.add('active');
+    document.getElementById('panel-' + id).classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+</script>
+</body>
+</html>

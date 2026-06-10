@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HS-06 Human-in-the-Loop &amp; Safety — Hospitality Ops Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+
+<header class="prd-header">
+  <div class="container">
+    <a href="../index.html" class="back-link">← System Design Hub</a>
+    <div class="prd-id">HS-06 · Human-in-the-Loop &amp; Safety</div>
+    <h1>Human-in-the-Loop &amp; Safety</h1>
+    <div class="prd-folio-line">
+      <span class="folio-field"><strong>Version</strong> 0.1</span>
+      <span class="folio-field"><strong>Date</strong> 2026-06-10</span>
+      <span class="folio-field"><strong>Owner</strong> Track A + Track F</span>
+      <span class="folio-field">
+        <strong>Contract</strong>&nbsp;
+        <span class="badge badge-draft">Draft</span>
+      </span>
+      <span class="folio-field">
+        <strong>Build</strong>&nbsp;
+        <span class="badge badge-not-started">Not Started</span>
+      </span>
+      <span class="folio-field"><strong>Freezes</strong> 4 HITL mechanisms · Safety invariants</span>
+    </div>
+  </div>
+</header>
+
+<nav class="tab-bar" aria-label="PRD sections">
+  <a href="#overview" class="active" onclick="switchTab(event,'overview')">Overview</a>
+  <a href="#confirm" onclick="switchTab(event,'confirm')">Confirm-then-Commit</a>
+  <a href="#revalidation" onclick="switchTab(event,'revalidation')">Write-time Revalidation</a>
+  <a href="#commit-gate" onclick="switchTab(event,'commit-gate')">Commit Gate</a>
+  <a href="#dual-channel" onclick="switchTab(event,'dual-channel')">Dual-Channel</a>
+  <a href="#drift-log" onclick="switchTab(event,'drift-log')">Contract-Drift Log</a>
+</nav>
+
+<!-- Overview -->
+<section class="tab-panel active main-content" id="panel-overview">
+  <div class="card card-oxblood" style="margin-bottom:1.5rem;">
+    <h4>Writes are never autonomous</h4>
+    <p>
+      The MCP performs writes, but a human confirms before anything with repercussions.
+      Safety lives in the server — not in the MCP behaving well. An agent that misbehaves
+      cannot write without the human-authorisation signal.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h2>The four mechanisms</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th>#</th><th>Mechanism</th><th>Where it lives</th><th>What it prevents</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td>Confirm-then-commit</td>
+          <td>UX flow / agent conversation</td>
+          <td>Autonomous write without human awareness</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td>Write-time revalidation</td>
+          <td><code>core-api</code> — every write handler</td>
+          <td>Writing stale data after a race condition</td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td>Server-side commit gate</td>
+          <td><code>core-api</code> — application service layer</td>
+          <td>Agent self-authorising a repercussive write</td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td>Dual-channel confirmation</td>
+          <td>Both <code>ops-web</code> and MCP conversation</td>
+          <td>MCP having privileged write paths not available to ops-web</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="content-block">
+    <h2>Safety invariants (non-negotiable)</h2>
+    <div class="step-flow">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body"><p>No write may succeed without passing write-time revalidation.</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body"><p>No repercussive write may succeed without a human-authorisation signal.</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body"><p>The agent cannot self-mint the human-authorisation signal.</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body"><p><code>ops-web</code> click and agent "yes" produce <strong>identical ledger outcomes</strong>.</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body"><p>A failed write must return the current state — enabling informed retry.</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="content-block">
+    <h2>Explicitly deferred</h2>
+    <div class="scope-list">
+      <span class="scope-tag out">Soft holds / drafts (TTL'd inventory reservation)</span>
+      <span class="scope-tag out">Multi-approver workflows</span>
+      <span class="scope-tag out">Audit log beyond outbox/event log</span>
+    </div>
+    <p style="font-size:0.875rem;margin-top:0.75rem;">
+      The availability seam is kept clean so holds are purely additive later — a hold becomes
+      "another thing that consumes availability."
+    </p>
+  </div>
+</section>
+
+<!-- Confirm-then-commit -->
+<section class="tab-panel main-content" id="panel-confirm">
+  <div class="content-block">
+    <h2>Mechanism 1: Confirm-then-commit</h2>
+    <div class="card card-teal" style="margin-bottom:1rem;">
+      <h4>No draft ceremony</h4>
+      <p>
+        No two-phase writes. No provisional state that must be cleaned up on timeout.
+        The agent reads availability, proposes in chat, the human says "yes", then the
+        agent calls <strong>one write endpoint</strong>.
+      </p>
+    </div>
+    <h3>Flow</h3>
+    <div class="step-flow">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body"><p>Agent calls <code>searchAvailability</code> (read — no gate).</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body"><p>Agent proposes options in chat. Human reviews.</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body"><p>Human says "yes" (the authorisation signal).</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body"><p>Agent calls <code>POST /bookings</code> (single call, with human-auth signal).</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body"><p><code>core-api</code> revalidates atomically → writes or returns <code>409</code> with current state.</p></div>
+      </div>
+    </div>
+    <p style="font-size:0.875rem;margin-top:0.75rem;">
+      If the write returns <code>409</code>, the agent reports the changed state to the human
+      and may re-propose. No silent retry.
+    </p>
+  </div>
+</section>
+
+<!-- Revalidation -->
+<section class="tab-panel main-content" id="panel-revalidation">
+  <div class="content-block">
+    <h2>Mechanism 2: Write-time revalidation</h2>
+    <div class="card card-teal" style="margin-bottom:1rem;">
+      <h4>The core safety mechanism</h4>
+      <p>
+        Every write atomically re-checks availability and price. If state has moved since the
+        caller last read, the write returns <code>409 Conflict</code> with the current state —
+        never silently writing stale data.
+      </p>
+    </div>
+    <h3>Why this design?</h3>
+    <p style="font-size:0.875rem;">
+      Cheaper and more reliable than distributed locks or draft reservations. The
+      availability window between read and confirm is acceptable because this check catches
+      any movement. The caller receives actionable information to retry intelligently.
+    </p>
+    <h3>Applies to</h3>
+    <p style="font-size:0.875rem;">
+      All writes in the capability surface (HS-05). No write bypasses revalidation.
+    </p>
+    <h3>On conflict</h3>
+    <p style="font-size:0.875rem;">
+      Returns <code>409 Conflict</code> with the current state of the relevant resource
+      (current availability, current prices). This enables an informed retry or updated
+      proposal to the human.
+    </p>
+  </div>
+</section>
+
+<!-- Commit Gate -->
+<section class="tab-panel main-content" id="panel-commit-gate">
+  <div class="content-block">
+    <h2>Mechanism 3: Server-side commit gate</h2>
+    <div class="card card-oxblood" style="margin-bottom:1rem;">
+      <h4>Safety lives in the server</h4>
+      <p>
+        <code>core-api</code> requires a human-authorisation signal on repercussive writes.
+        The agent cannot self-mint this signal. An agent that hallucinated a "yes" or looped
+        cannot write.
+      </p>
+    </div>
+    <h3>Signal sources (both are legitimate)</h3>
+    <table class="data-table">
+      <thead><tr><th>Source</th><th>How the signal is produced</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>ops-web</strong></td>
+          <td>A UI button click. The front-end generates or includes the authorisation signal in the request.</td>
+        </tr>
+        <tr>
+          <td><strong>MCP agent conversation</strong></td>
+          <td>The human's "yes" in the conversation. The agent forwards it; it cannot fabricate it.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="font-size:0.875rem;margin-top:0.75rem;">
+      The specific mechanism (header, field, token) is defined in
+      <code class="ref">contracts/WAVE0_02_OPENAPI.yaml</code>.
+    </p>
+  </div>
+</section>
+
+<!-- Dual-Channel -->
+<section class="tab-panel main-content" id="panel-dual-channel">
+  <div class="content-block">
+    <h2>Mechanism 4: Dual-channel confirmation</h2>
+    <div class="card card-teal" style="margin-bottom:1rem;">
+      <h4>Part of the proof</h4>
+      <p>
+        Demonstrating that the same <code>createBooking</code> called from a button and from
+        the agent lands identically in the ledger <strong>is itself a slice of the proof.</strong>
+        The two channels converge at the same endpoint with the same rules applied.
+      </p>
+    </div>
+    <h3>The equivalence</h3>
+    <table class="data-table">
+      <thead>
+        <tr><th>Channel</th><th>Human action</th><th>Result in ledger</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>ops-web</strong></td>
+          <td>Click "Confirm Booking" button</td>
+          <td>Booking created, inventory consumed, folio updated</td>
+        </tr>
+        <tr>
+          <td><strong>MCP agent</strong></td>
+          <td>Type "yes" in conversation</td>
+          <td><strong>Identical:</strong> Booking created, inventory consumed, folio updated</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="font-size:0.875rem;margin-top:0.75rem;">
+      No capability may exist solely for the agent. No write path for the agent that is not
+      also available to <code>ops-web</code>.
+    </p>
+  </div>
+</section>
+
+<!-- Drift Log -->
+<section class="tab-panel main-content" id="panel-drift-log">
+  <div class="card card-oxblood" style="margin-bottom:1.5rem;">
+    <h4>Standing rule</h4>
+    <p>
+      Frozen contracts may not drift silently. Any deviation a builder must make is recorded
+      here with date, the clause affected, what changed, and why. Until a row is arbitrated
+      and the contract re-frozen, <strong>the code is the source of truth for that clause.</strong>
+    </p>
+  </div>
+  <div class="drift-log">
+    <div class="drift-log-header">Contract-Drift Log — HS-06</div>
+    <div class="drift-log-empty">No drift recorded. Contract and code are in agreement.</div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  HS-06 · Human-in-the-Loop &amp; Safety · <span class="ref">prd-interactive/06-human-in-the-loop.html</span>
+  &nbsp;·&nbsp; <a href="../index.html">↑ Hub</a>
+</footer>
+
+<script>
+  function switchTab(e, id) {
+    e.preventDefault();
+    document.querySelectorAll('.tab-bar a').forEach(a => a.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    e.currentTarget.classList.add('active');
+    document.getElementById('panel-' + id).classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+</script>
+</body>
+</html>

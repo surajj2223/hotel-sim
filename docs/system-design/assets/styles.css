@@ -1,0 +1,707 @@
+/* ============================================================
+   Hospitality Operations Platform — Design System
+   Folio / Ledger identity: ink, parchment, brass, teal, oxblood
+   ============================================================ */
+
+/* ---------- Tokens ---------- */
+:root {
+  --ink:       #14110E;
+  --parchment: #F2EBDD;
+  --brass:     #B6862C;
+  --teal:      #2D5D5E;
+  --oxblood:   #8C3A2B;
+  --teal-light:   #e4efef;
+  --oxblood-light: #f5e6e3;
+  --brass-light:   #fdf3de;
+  --mid-tone:  #7a6f62;
+  --rule:      #c8bfae;
+
+  --font-display: 'Playfair Display', 'Libre Caslon Text', Georgia, serif;
+  --font-body:    'Inter', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+
+  --radius: 3px;
+  --shadow-card: 0 1px 3px rgba(20,17,14,0.10), 0 1px 1px rgba(20,17,14,0.06);
+}
+
+/* ---------- Reset / Base ---------- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+body {
+  background: var(--parchment);
+  color: var(--ink);
+  font-family: var(--font-body);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ---------- Typography ---------- */
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  line-height: 1.25;
+  color: var(--ink);
+}
+
+h1 { font-size: clamp(1.75rem, 4vw, 2.5rem); font-weight: 700; }
+h2 { font-size: clamp(1.25rem, 2.5vw, 1.75rem); font-weight: 600; }
+h3 { font-size: 1.15rem; font-weight: 600; }
+h4 { font-size: 1rem; font-weight: 600; }
+
+p { margin-bottom: 0.75rem; }
+p:last-child { margin-bottom: 0; }
+
+a { color: var(--teal); text-decoration: underline; text-underline-offset: 2px; }
+a:hover { color: var(--brass); }
+a:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+code, kbd, .ref {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: rgba(20,17,14,0.06);
+  padding: 0.1em 0.35em;
+  border-radius: 2px;
+  border: 1px solid var(--rule);
+}
+
+pre {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  background: var(--ink);
+  color: #e8dfc8;
+  padding: 1.25rem 1.5rem;
+  border-radius: var(--radius);
+  overflow-x: auto;
+  line-height: 1.55;
+  margin: 1rem 0;
+}
+pre code { background: none; border: none; padding: 0; font-size: inherit; color: inherit; }
+
+/* ---------- Layout ---------- */
+.site-header {
+  background: var(--ink);
+  color: var(--parchment);
+  padding: 2rem 1.5rem 1.75rem;
+  border-bottom: 3px solid var(--brass);
+}
+
+.site-header .wordmark {
+  font-family: var(--font-display);
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--parchment);
+}
+
+.site-header .property-code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--brass);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-top: 0.2rem;
+}
+
+.site-header .tagline {
+  font-size: 0.9rem;
+  color: rgba(242,235,221,0.7);
+  margin-top: 0.35rem;
+  font-style: italic;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.main-content {
+  padding: 2.5rem 1.5rem;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+/* ---------- Stat Strip ---------- */
+.stat-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  background: var(--ink);
+  border-bottom: 1px solid rgba(182,134,44,0.3);
+}
+
+.stat-item {
+  text-align: center;
+  padding: 0.5rem 1.25rem;
+  border-right: 1px solid rgba(242,235,221,0.15);
+}
+.stat-item:last-child { border-right: none; }
+
+.stat-number {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--brass);
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: 0.7rem;
+  color: rgba(242,235,221,0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 0.2rem;
+}
+
+/* ---------- Section headings ---------- */
+.section-rule {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 2rem 0 1.25rem;
+}
+
+.section-rule h2 {
+  font-size: 0.8rem;
+  font-family: var(--font-body);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--mid-tone);
+  white-space: nowrap;
+}
+
+.section-rule::before,
+.section-rule::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+}
+.section-rule::before { flex: 0 0 0; }
+
+/* ---------- How-to-read callout ---------- */
+.how-to-read {
+  background: var(--brass-light);
+  border-left: 3px solid var(--brass);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.how-to-read h3 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--brass);
+  margin-bottom: 0.5rem;
+}
+
+.how-to-read p {
+  font-size: 0.875rem;
+  color: var(--ink);
+}
+
+/* ---------- PRD Folio Card (hub) ---------- */
+.prd-register {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: white;
+}
+
+.folio-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 1rem 1.5rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--rule);
+  background: white;
+  transition: background 0.15s ease;
+}
+
+.folio-row:last-child { border-bottom: none; }
+.folio-row:hover { background: #faf8f4; }
+
+.folio-id {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--mid-tone);
+  padding-top: 0.15rem;
+  white-space: nowrap;
+}
+
+.folio-body {}
+
+.folio-title {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 0.2rem;
+}
+
+.folio-summary {
+  font-size: 0.825rem;
+  color: var(--mid-tone);
+  margin: 0;
+}
+
+.folio-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+}
+
+.folio-links {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.folio-links a {
+  font-size: 0.75rem;
+  color: var(--teal);
+  text-decoration: none;
+  border: 1px solid var(--teal);
+  padding: 0.15rem 0.5rem;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+}
+
+.folio-links a:hover {
+  background: var(--teal);
+  color: white;
+}
+
+.folio-links a:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+/* ---------- Status Badges (the folio stamp) ---------- */
+.stamp-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.badge {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.5rem;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+.badge-contract { }
+
+.badge-frozen {
+  background: var(--teal);
+  color: white;
+  border: 1px solid var(--teal);
+  /* inked seal look */
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
+}
+
+.badge-draft {
+  background: var(--oxblood-light);
+  color: var(--oxblood);
+  border: 1px solid var(--oxblood);
+}
+
+.badge-implemented {
+  background: var(--teal);
+  color: white;
+  border: 1px solid var(--teal);
+}
+
+.badge-in-progress {
+  background: var(--brass-light);
+  color: #7a5a10;
+  border: 1px solid var(--brass);
+}
+
+.badge-not-started {
+  background: rgba(20,17,14,0.06);
+  color: var(--mid-tone);
+  border: 1px solid var(--rule);
+}
+
+.badge-deferred {
+  background: rgba(20,17,14,0.04);
+  color: var(--mid-tone);
+  border: 1px solid var(--rule);
+  font-style: italic;
+}
+
+.badge-partial {
+  background: var(--brass-light);
+  color: #7a5a10;
+  border: 1px solid var(--brass);
+}
+
+.badge-label {
+  font-size: 0.6rem;
+  color: var(--mid-tone);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ---------- PRD Page: Header ---------- */
+.prd-header {
+  background: var(--ink);
+  color: var(--parchment);
+  padding: 2rem 1.5rem 1.5rem;
+  border-bottom: 3px solid var(--brass);
+}
+
+.prd-header .back-link {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--brass);
+  text-decoration: none;
+  letter-spacing: 0.06em;
+  display: inline-block;
+  margin-bottom: 0.75rem;
+}
+
+.prd-header .back-link:hover { color: var(--parchment); }
+
+.prd-header .prd-id {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--brass);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 0.25rem;
+}
+
+.prd-header h1 {
+  color: var(--parchment);
+  margin-bottom: 0.75rem;
+}
+
+/* Folio register line inside PRD header */
+.prd-folio-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding: 0.65rem 0;
+  border-top: 1px solid rgba(242,235,221,0.15);
+  border-bottom: 1px solid rgba(242,235,221,0.15);
+  margin-top: 0.75rem;
+}
+
+.prd-folio-line .folio-field {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: rgba(242,235,221,0.55);
+}
+
+.prd-folio-line .folio-field strong {
+  color: rgba(242,235,221,0.9);
+}
+
+/* ---------- Nav Tabs ---------- */
+.tab-bar {
+  background: white;
+  border-bottom: 2px solid var(--rule);
+  padding: 0 1.5rem;
+  display: flex;
+  gap: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tab-bar a {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--mid-tone);
+  text-decoration: none;
+  padding: 0.75rem 1rem;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  transition: color 0.12s, border-color 0.12s;
+  margin-bottom: -2px;
+}
+
+.tab-bar a:hover { color: var(--ink); border-bottom-color: var(--rule); }
+.tab-bar a.active { color: var(--brass); border-bottom-color: var(--brass); font-weight: 600; }
+
+.tab-bar a:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: -2px;
+}
+
+/* ---------- Tab Panels ---------- */
+.tab-panel { display: none; padding: 2rem 0; }
+.tab-panel.active { display: block; }
+
+/* ---------- Content blocks ---------- */
+.content-block {
+  margin-bottom: 2rem;
+}
+
+.content-block h2 {
+  font-size: 1.15rem;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.content-block h3 {
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--mid-tone);
+  margin-bottom: 0.6rem;
+  margin-top: 1.25rem;
+}
+
+/* ---------- Tables ---------- */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  margin: 1rem 0;
+}
+
+.data-table th {
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--mid-tone);
+  border-bottom: 2px solid var(--rule);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  background: #faf8f4;
+}
+
+.data-table td {
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: #faf8f4; }
+
+/* ---------- Info / Warning / Scope cards ---------- */
+.card {
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  margin: 1rem 0;
+  border-left: 3px solid;
+}
+
+.card-teal {
+  background: var(--teal-light);
+  border-color: var(--teal);
+}
+
+.card-brass {
+  background: var(--brass-light);
+  border-color: var(--brass);
+}
+
+.card-oxblood {
+  background: var(--oxblood-light);
+  border-color: var(--oxblood);
+}
+
+.card h4 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.5rem;
+}
+
+.card-teal h4  { color: var(--teal); }
+.card-brass h4 { color: #7a5a10; }
+.card-oxblood h4 { color: var(--oxblood); }
+
+.card ul { padding-left: 1.25rem; font-size: 0.875rem; }
+.card li { margin-bottom: 0.25rem; }
+.card p  { font-size: 0.875rem; margin-bottom: 0.35rem; }
+
+/* ---------- Step flow ---------- */
+.step-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 1rem 0;
+}
+
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+.step:last-child { border-bottom: none; }
+
+.step-num {
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: var(--brass);
+  color: white;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.1rem;
+}
+
+.step-body { font-size: 0.875rem; }
+.step-body strong { color: var(--ink); }
+.step-body p { margin: 0; }
+
+/* ---------- Contract Drift Log ---------- */
+.drift-log {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.drift-log-header {
+  background: #faf8f4;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--rule);
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--mid-tone);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.drift-log-empty {
+  padding: 1.5rem 1rem;
+  font-size: 0.875rem;
+  color: var(--mid-tone);
+  font-style: italic;
+  text-align: center;
+}
+
+.drift-rule {
+  background: var(--oxblood-light);
+  border-top: 1px solid rgba(140,58,43,0.2);
+  padding: 0.75rem 1rem;
+  font-size: 0.8rem;
+  color: var(--oxblood);
+}
+
+/* ---------- Scope tag list ---------- */
+.scope-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.5rem 0;
+}
+
+.scope-tag {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 2px;
+  background: rgba(20,17,14,0.05);
+  border: 1px solid var(--rule);
+  color: var(--mid-tone);
+}
+
+.scope-tag.in { background: var(--teal-light); border-color: var(--teal); color: var(--teal); }
+.scope-tag.out { background: var(--oxblood-light); border-color: var(--oxblood); color: var(--oxblood); text-decoration: line-through; }
+
+/* ---------- Definition list ---------- */
+.def-list {
+  font-size: 0.875rem;
+}
+
+.def-list dt {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink);
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--rule);
+}
+.def-list dt:first-child { border-top: none; padding-top: 0; }
+
+.def-list dd {
+  color: var(--mid-tone);
+  margin-left: 0;
+  padding: 0.2rem 0 0.75rem 1rem;
+}
+
+/* ---------- Site footer ---------- */
+.site-footer {
+  margin-top: 3rem;
+  padding: 1.5rem;
+  border-top: 1px solid var(--rule);
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--mid-tone);
+  font-family: var(--font-mono);
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 680px) {
+  .folio-row {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .folio-meta {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .stat-strip {
+    justify-content: center;
+  }
+
+  .stat-item {
+    border-right: none;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .tab-bar { padding: 0 0.75rem; }
+
+  .main-content { padding: 1.5rem 1rem; }
+}

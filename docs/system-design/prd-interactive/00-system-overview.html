@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HS-00 System Overview — Hospitality Ops Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+
+<!-- PRD Header / Folio Register Line -->
+<header class="prd-header">
+  <div class="container">
+    <a href="../index.html" class="back-link">← System Design Hub</a>
+    <div class="prd-id">HS-00 · System Overview</div>
+    <h1>System Overview</h1>
+    <div class="prd-folio-line">
+      <span class="folio-field"><strong>Version</strong> 0.1</span>
+      <span class="folio-field"><strong>Date</strong> 2026-06-10</span>
+      <span class="folio-field"><strong>Owner</strong> Project Arbiter</span>
+      <span class="folio-field">
+        <strong>Contract</strong>&nbsp;
+        <span class="badge badge-frozen">Frozen</span>
+      </span>
+      <span class="folio-field">
+        <strong>Build</strong>&nbsp;
+        <span class="badge badge-in-progress">In Progress</span>
+      </span>
+      <span class="folio-field"><strong>Freezes</strong> Thesis · Two-head model · Project map · Verticals</span>
+    </div>
+  </div>
+</header>
+
+<!-- Nav Tabs -->
+<nav class="tab-bar" aria-label="PRD sections">
+  <a href="#overview" class="active" onclick="switchTab(event,'overview')">Overview</a>
+  <a href="#architecture" onclick="switchTab(event,'architecture')">Architecture</a>
+  <a href="#domain" onclick="switchTab(event,'domain')">Domain</a>
+  <a href="#patterns" onclick="switchTab(event,'patterns')">Patterns</a>
+  <a href="#decisions" onclick="switchTab(event,'decisions')">Decisions</a>
+  <a href="#drift-log" onclick="switchTab(event,'drift-log')">Contract-Drift Log</a>
+</nav>
+
+<!-- ── TAB: Overview ── -->
+<section class="tab-panel active main-content" id="panel-overview">
+
+  <div class="card card-teal" style="margin-bottom:1.5rem;">
+    <h4>The Thesis</h4>
+    <p>
+      Here is a normal, complete, headful operations system — the kind that already exists
+      everywhere — and an MCP layer drops onto it cleanly to make it headless,
+      <strong>without rebuilding anything underneath.</strong>
+    </p>
+    <p>
+      Persuasive power comes from the UI being <em>real and unremarkable</em>.
+      The MCP is strictly additive: it wraps the same endpoints <code>ops-web</code> already uses.
+      No capability may exist solely for the agent.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h2>What this system is</h2>
+    <p>
+      A proof-of-concept multi-vertical hotel operations platform. It manages bookings,
+      inventory, payments, and financial ledger postings across four sellable verticals
+      from a single <code>core-api</code> body — served by both a full operations console
+      (<code>ops-web</code>) and, in Wave 2, a headless MCP agent.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h2>The four verticals</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th>Vertical</th><th>What is sold</th><th>Default capture</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Rooms</strong></td>
+          <td>Room / night booking</td>
+          <td><code>MANUAL</code> — auth now, capture at checkout</td>
+        </tr>
+        <tr>
+          <td><strong>Spa</strong></td>
+          <td>Therapist and treatment time slots</td>
+          <td>TBD by strategy</td>
+        </tr>
+        <tr>
+          <td><strong>F&amp;B</strong></td>
+          <td>Restaurant covers per service period</td>
+          <td><code>IMMEDIATE</code> — auth and capture together</td>
+        </tr>
+        <tr>
+          <td><strong>Events</strong></td>
+          <td>Capacity-limited experiences (city tours, horse rides)</td>
+          <td>TBD by strategy</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      Every vertical is the same thing at the domain level: a bookable resource with
+      capacity over time, sold to a customer, paid for, and posted to a ledger.
+      Vertical-specific behaviour lives in per-vertical strategy classes — not in parallel silos.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h2>Projects</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th>Project</th><th>Stack</th><th>Role</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>core-api</code></td>
+          <td>Spring Boot</td>
+          <td>The body — all logic, domain, persistence, payment orchestration, ledger</td>
+        </tr>
+        <tr>
+          <td><code>payments-sim</code></td>
+          <td>Spring Boot</td>
+          <td>Fake PSP: mints references, hosts checkout, fires webhooks</td>
+        </tr>
+        <tr>
+          <td><code>ops-web</code></td>
+          <td>React</td>
+          <td>Complete operations console (Head 1)</td>
+        </tr>
+        <tr>
+          <td><code>pay-web</code></td>
+          <td>React</td>
+          <td>Simulated hosted checkout page (triggers the PSP webhook)</td>
+        </tr>
+        <tr>
+          <td><code>db</code></td>
+          <td>Postgres (Docker)</td>
+          <td>Single shared instance</td>
+        </tr>
+        <tr>
+          <td><code>docker-compose</code></td>
+          <td>—</td>
+          <td>Wires everything; home of the smoke test</td>
+        </tr>
+        <tr>
+          <td>MCP server</td>
+          <td>TBD (Wave 2)</td>
+          <td>Head 2 — thin wrapper over <code>core-api</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</section>
+
+<!-- ── TAB: Architecture ── -->
+<section class="tab-panel main-content" id="panel-architecture">
+
+  <div class="content-block">
+    <h2>Two equal heads, one body</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th>Layer</th><th>Project</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Body</strong></td>
+          <td><code>core-api</code></td>
+          <td>All logic, rules, and state. The single source of truth. Spring Boot 3.5, Java 17.</td>
+        </tr>
+        <tr>
+          <td><strong>Head 1 (headful)</strong></td>
+          <td><code>ops-web</code></td>
+          <td>A complete standalone operations console. React. Every capability has a screen.</td>
+        </tr>
+        <tr>
+          <td><strong>Head 2 (headless)</strong></td>
+          <td>MCP server</td>
+          <td>A thin tool-wrapper over the same <code>core-api</code> endpoints. Wave 2. Strictly additive.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="card card-brass" style="margin-top:1rem;">
+      <h4>The symmetry rule</h4>
+      <p>
+        Acceptance test for every endpoint: can <code>ops-web</code> build a complete screen on it?
+        If yes, the MCP will be fine.
+        <strong>No capability may exist solely for the agent.</strong>
+      </p>
+    </div>
+  </div>
+
+  <div class="content-block">
+    <h2>core-api Layering</h2>
+    <pre>Controllers
+    │  DTOs only (entities never leave this layer)
+    ▼
+Application Services
+    │  orchestration, write-time revalidation, commit gate
+    ▼
+Domain  ◄──  Per-vertical Strategy (availability / pricing / captureMode)
+    │
+    ▼
+Repositories  ──►  Postgres
+    │
+    ▼
+Outbox / Event Log  ──►  Ledger Service</pre>
+  </div>
+
+  <div class="content-block">
+    <h2>Payment Flow</h2>
+    <pre>ops-web / MCP
+     │  createPaymentLink
+     ▼
+core-api ──────────────────► payments-sim
+     │   (POST /payment-links)      │
+     │                              │  returns paymentLinkId
+     │◄─────────────────────────────┘
+     │
+     │  customer visits pay-web (hosted checkout)
+     │
+     ▼
+payments-sim fires webhook ──► core-api
+  AUTHORISATION / CAPTURE           │  idempotent handler stamps
+  REFUND / CANCELLATION             │  pspReference on Payment,
+                                    │  posts to ledger</pre>
+  </div>
+
+  <div class="content-block">
+    <h2>Port assignments</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th>Service</th><th>Host port</th><th>Health</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>core-api</code></td><td><code>8080</code></td><td><code>GET /actuator/health</code></td></tr>
+        <tr><td><code>ops-web</code></td><td><code>3000</code></td><td>—</td></tr>
+        <tr><td><code>payments-sim</code></td><td><code>9090</code></td><td><code>GET /actuator/health</code></td></tr>
+        <tr><td><code>pay-web</code></td><td><code>3001</code></td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</section>
+
+<!-- ── TAB: Domain ── -->
+<section class="tab-panel main-content" id="panel-domain">
+
+  <div class="content-block">
+    <h2>Core entities</h2>
+    <dl class="def-list">
+      <dt>Customer</dt>
+      <dd>
+        Identity + contact. Carries an immutable, opaque <code>shopperReference</code> (<code>SHPR-…</code>),
+        one-to-one with the customer, never the raw DB id. Reconciliation never uses raw id.
+      </dd>
+      <dt>CustomerPreference</dt>
+      <dd>
+        Flexible key/value store, cross-vertical (e.g. <code>floor=high</code>,
+        <code>dietary=vegan</code>, <code>spa_therapist=female</code>).
+      </dd>
+      <dt>Product (polymorphic)</dt>
+      <dd>
+        Keyed by <code>vertical</code>, with vertical-specific config. A Deluxe Room, a 60-min massage,
+        a dinner slot, and a horse ride are all Products — same abstraction, different strategy.
+      </dd>
+      <dt>Booking / Folio</dt>
+      <dd>
+        One customer + one or more <code>BookingLine</code>s, each referencing a Product, time window,
+        quantity, and a <strong>price snapshot</strong>. One booking can span verticals (room + spa + dinner = one folio).
+        Carries <code>totalAmount</code>, <code>amountPaid</code>, <code>amountRefunded</code>, and derived <code>balance</code>.
+        <strong>Paid = <code>balance == 0</code></strong>, not a boolean.
+      </dd>
+      <dt>Inventory / Availability</dt>
+      <dd>
+        Generic capacity per product/slot. Consumed by committed bookings only.
+        <strong>No holds in this POC.</strong>
+        The availability seam is kept clean so holds are purely additive later.
+      </dd>
+    </dl>
+  </div>
+
+  <div class="content-block">
+    <h2>Per-vertical strategy interface</h2>
+    <p>Each vertical implements a common strategy interface supplying:</p>
+    <ul style="padding-left:1.25rem;font-size:0.875rem;line-height:1.8;">
+      <li>Availability calculation</li>
+      <li>Pricing</li>
+      <li><code>defaultCaptureMode()</code> — the vertical's payment capture default</li>
+    </ul>
+    <p style="margin-top:0.75rem;">
+      This is where "Rooms behave this way, F&amp;B behaves that way" lives — in one place,
+      not in parallel silos. See <a href="02-vertical-strategies.html">HS-02</a> for detail.
+    </p>
+  </div>
+
+</section>
+
+<!-- ── TAB: Patterns ── -->
+<section class="tab-panel main-content" id="panel-patterns">
+
+  <div class="content-block">
+    <h2>Applied patterns</h2>
+    <div class="scope-list">
+      <span class="scope-tag in">Hexagonal layering</span>
+      <span class="scope-tag in">Strategy per vertical</span>
+      <span class="scope-tag in">DTOs at every boundary</span>
+      <span class="scope-tag in">Idempotent webhook handling</span>
+      <span class="scope-tag in">Outbox / event log</span>
+      <span class="scope-tag in">Write-time revalidation</span>
+      <span class="scope-tag in">Server-side commit gate</span>
+    </div>
+  </div>
+
+  <div class="content-block">
+    <h2>Deliberately out of scope (POC)</h2>
+    <div class="card card-oxblood">
+      <h4>Do not build these</h4>
+      <ul>
+        <li>Microservice-per-vertical</li>
+        <li>Event bus / Kafka</li>
+        <li>CQRS</li>
+        <li>Real authentication (stubbed only)</li>
+        <li>Real money / multi-currency</li>
+        <li>Holds / drafts (inventory reservation with TTL)</li>
+        <li>Multi-capture / incremental auth</li>
+        <li>Scaling concerns</li>
+      </ul>
+    </div>
+    <p style="margin-top:0.75rem;font-size:0.875rem;">
+      The availability seam is designed so holds are <em>purely additive later</em> —
+      a hold becomes "another thing that consumes availability." It is not missing;
+      it is deferred by design.
+    </p>
+  </div>
+
+</section>
+
+<!-- ── TAB: Decisions ── -->
+<section class="tab-panel main-content" id="panel-decisions">
+
+  <div class="content-block">
+    <h2>Settled decisions (quick reference)</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th>#</th><th>Decision</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td>4 verticals behind a unified Booking/folio; polymorphic Product; per-vertical strategies.</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td><code>shopperReference</code> is immutable and opaque. Reconciliation anchors on <code>merchantReference</code>. PSP mints <code>pspReference</code> and <code>paymentLinkId</code>.</td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td>One booking → many payments; partial payments supported; refunds are children of a payment via <code>originalReference</code>.</td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td>Partial capture <strong>in</strong>; multi-capture and incremental-auth <strong>out</strong>.</td>
+        </tr>
+        <tr>
+          <td>5</td>
+          <td>Ledger posts on <strong>capture</strong>, not auth.</td>
+        </tr>
+        <tr>
+          <td>6</td>
+          <td><code>ops-web</code> is a complete product; MCP is strictly additive; no agent-only endpoints.</td>
+        </tr>
+        <tr>
+          <td>7</td>
+          <td>Stack: <code>core-api</code> + <code>payments-sim</code> (Spring Boot), <code>ops-web</code> + <code>pay-web</code> (React), Postgres on Docker, docker-compose.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</section>
+
+<!-- ── TAB: Contract-Drift Log ── -->
+<section class="tab-panel main-content" id="panel-drift-log">
+
+  <div class="card card-oxblood" style="margin-bottom:1.5rem;">
+    <h4>Standing rule</h4>
+    <p>
+      Frozen contracts may not drift silently. Any deviation a builder must make is recorded
+      here with date, the clause affected, what changed, and why. Until a row is arbitrated
+      and the contract re-frozen, <strong>the code is the source of truth for that clause.</strong>
+      This is the hotel-sim analogue of NikkFit's "Code-vs-PRD Errata," but it governs a
+      <em>frozen contract</em>, so it doubles as the central-arbitration record.
+    </p>
+  </div>
+
+  <div class="drift-log">
+    <div class="drift-log-header">Contract-Drift Log — HS-00</div>
+    <div class="drift-log-empty">No drift recorded. Contract and code are in agreement.</div>
+  </div>
+
+</section>
+
+<footer class="site-footer">
+  HS-00 · System Overview · <span class="ref">prd-interactive/00-system-overview.html</span>
+  &nbsp;·&nbsp; <a href="../index.html">↑ Hub</a>
+</footer>
+
+<script>
+  function switchTab(e, id) {
+    e.preventDefault();
+    document.querySelectorAll('.tab-bar a').forEach(a => a.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    e.currentTarget.classList.add('active');
+    document.getElementById('panel-' + id).classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+</script>
+
+</body>
+</html>

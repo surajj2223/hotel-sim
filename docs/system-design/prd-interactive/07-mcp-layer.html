@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HS-07 MCP Layer (Head 2) — Hospitality Ops Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+
+<header class="prd-header">
+  <div class="container">
+    <a href="../index.html" class="back-link">← System Design Hub</a>
+    <div class="prd-id">HS-07 · MCP Layer (Head 2)</div>
+    <h1>MCP Layer (Head 2)</h1>
+    <div class="prd-folio-line">
+      <span class="folio-field"><strong>Version</strong> 0.1</span>
+      <span class="folio-field"><strong>Date</strong> 2026-06-10</span>
+      <span class="folio-field"><strong>Owner</strong> TBD (Wave 2)</span>
+      <span class="folio-field">
+        <strong>Contract</strong>&nbsp;
+        <span class="badge badge-draft">Draft</span>
+      </span>
+      <span class="folio-field">
+        <strong>Build</strong>&nbsp;
+        <span class="badge badge-deferred">Deferred (Wave 2)</span>
+      </span>
+      <span class="folio-field"><strong>Freezes</strong> Three proof capabilities · Additive-only constraint</span>
+    </div>
+  </div>
+</header>
+
+<nav class="tab-bar" aria-label="PRD sections">
+  <a href="#overview" class="active" onclick="switchTab(event,'overview')">Overview</a>
+  <a href="#proof-capabilities" onclick="switchTab(event,'proof-capabilities')">Proof Capabilities</a>
+  <a href="#tool-inventory" onclick="switchTab(event,'tool-inventory')">Tool Inventory</a>
+  <a href="#utterances" onclick="switchTab(event,'utterances')">Utterances</a>
+  <a href="#drift-log" onclick="switchTab(event,'drift-log')">Contract-Drift Log</a>
+</nav>
+
+<!-- Overview -->
+<section class="tab-panel active main-content" id="panel-overview">
+  <div class="card card-teal" style="margin-bottom:1.5rem;">
+    <h4>Last, lightest piece</h4>
+    <p>
+      The MCP server is Head 2 — a thin tool-wrapper over the same <code>core-api</code>
+      endpoints that <code>ops-web</code> already uses. It adds no new logic, no new endpoints,
+      no new persistence. It is the <strong>last, lightest piece</strong> of the system —
+      built only after the full smoke test is green.
+    </p>
+  </div>
+
+  <div class="card card-oxblood" style="margin-bottom:1.5rem;">
+    <h4>Additive-only constraint</h4>
+    <p>
+      No capability may exist solely for the agent. Every MCP tool maps 1:1 to an existing
+      <code>core-api</code> endpoint that already fully serves <code>ops-web</code>. The MCP
+      server calls <code>core-api</code> over the same HTTP calls <code>ops-web</code> would make.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h2>This PRD is Wave 0 forward-documentation</h2>
+    <p style="font-size:0.875rem;">
+      This PRD is written now (Wave 0) to document the design intent and the three proof
+      capabilities. Implementation is Wave 2. Stack and port are TBD.
+    </p>
+  </div>
+</section>
+
+<!-- Proof Capabilities -->
+<section class="tab-panel main-content" id="panel-proof-capabilities">
+  <div class="content-block">
+    <h2>The three capabilities that prove the thesis</h2>
+
+    <div class="card card-teal" style="margin-bottom:1rem;">
+      <h4>1. Preference-aware suggestion</h4>
+      <p>
+        The API returns availability alongside stored customer preferences.
+        <strong>The LLM does the matching and judgement — not the server.</strong>
+        Facts from the system, judgement from the model.
+      </p>
+      <p style="margin-top:0.5rem;">
+        <em>"Mr. John Patel checks in Friday for 3 nights, wants a high-floor quiet room; add a
+        couples massage Saturday afternoon and a table for two at 8."</em>
+      </p>
+      <p>
+        Agent calls: <code>searchAvailability</code> → <code>getCustomerPreferences</code> →
+        proposes → <code>createBooking</code> (on confirm).
+      </p>
+    </div>
+
+    <div class="card card-teal" style="margin-bottom:1rem;">
+      <h4>2. Cross-vertical orchestration</h4>
+      <p>
+        One natural-language instruction produces a room + spa + dinner folio in a single
+        confirmed write. Demonstrates that the unified Booking/folio model is not just a
+        design principle but an operational reality.
+      </p>
+      <p style="margin-top:0.5rem;">
+        Multi-vertical folio created atomically via one <code>POST /bookings</code>, not as
+        three separate bookings.
+      </p>
+    </div>
+
+    <div class="card card-teal">
+      <h4>3. Financial read-back</h4>
+      <p>
+        Conversational interrogation of the ledger. Read-only — no human gate required.
+      </p>
+      <p style="margin-top:0.5rem;">
+        <em>"Pull up everything for Mrs. Chen this stay and tell me what's unpaid."</em><br>
+        <em>"Today's revenue split by vertical, and flag anything still pending payment."</em>
+      </p>
+      <p>
+        Calls: <code>getFolio</code>, <code>getRevenue</code>, <code>listUnpaidBookings</code>.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- Tool Inventory -->
+<section class="tab-panel main-content" id="panel-tool-inventory">
+  <div class="content-block">
+    <h2>Tool inventory (Wave 2 implementation)</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th>Tool</th><th>Maps to</th><th>R / W</th><th>Human gate</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>searchAvailability</code></td><td><code>GET /availability</code></td><td>Read</td><td>No</td></tr>
+        <tr><td><code>searchCustomers</code></td><td><code>GET /customers?q=…</code></td><td>Read</td><td>No</td></tr>
+        <tr><td><code>getCustomer</code></td><td><code>GET /customers/{id}</code></td><td>Read</td><td>No</td></tr>
+        <tr><td><code>getCustomerPreferences</code></td><td><code>GET /customers/{id}/preferences</code></td><td>Read</td><td>No</td></tr>
+        <tr><td><code>getFolio</code></td><td><code>GET /bookings/{id}</code></td><td>Read</td><td>No</td></tr>
+        <tr><td><code>getRevenue</code></td><td><code>GET /reports/revenue</code></td><td>Read</td><td>No</td></tr>
+        <tr><td><code>listUnpaidBookings</code></td><td><code>GET /bookings?status=unpaid</code></td><td>Read</td><td>No</td></tr>
+        <tr><td><code>createCustomer</code></td><td><code>POST /customers</code></td><td>Write</td><td>Yes</td></tr>
+        <tr><td><code>updateCustomer</code></td><td><code>PUT /customers/{id}</code></td><td>Write</td><td>Yes</td></tr>
+        <tr><td><code>setCustomerPreference</code></td><td><code>PUT /customers/{id}/preferences/{key}</code></td><td>Write</td><td>Yes</td></tr>
+        <tr><td><code>createBooking</code></td><td><code>POST /bookings</code></td><td>Write</td><td>Yes</td></tr>
+        <tr><td><code>modifyBookingLine</code></td><td><code>PATCH /bookings/{id}/lines/{lineId}</code></td><td>Write</td><td>Yes</td></tr>
+        <tr><td><code>cancelBookingLine</code></td><td><code>DELETE /bookings/{id}/lines/{lineId}</code></td><td>Write</td><td>Yes</td></tr>
+        <tr><td><code>createPaymentLink</code></td><td><code>POST /bookings/{id}/payments</code></td><td>Write</td><td>Yes</td></tr>
+        <tr><td><code>capturePayment</code></td><td><code>POST /payments/{id}/capture</code></td><td>Write</td><td>Yes</td></tr>
+        <tr><td><code>cancelAuthorisation</code></td><td><code>POST /payments/{id}/cancel</code></td><td>Write</td><td>Yes</td></tr>
+        <tr><td><code>refundPayment</code></td><td><code>POST /payments/{id}/refund</code></td><td>Write</td><td>Yes</td></tr>
+      </tbody>
+    </table>
+    <p style="font-size:0.875rem;margin-top:0.75rem;">Stack: TBD (Wave 2). Port: TBD.</p>
+  </div>
+</section>
+
+<!-- Utterances -->
+<section class="tab-panel main-content" id="panel-utterances">
+  <div class="content-block">
+    <h2>Representative agent utterances</h2>
+    <p style="font-size:0.875rem;margin-bottom:1rem;">
+      These are the scenarios the MCP layer must handle. They are used to verify that
+      the capability surface (HS-05) is complete and that all three proof capabilities work end-to-end.
+    </p>
+    <div class="card card-brass" style="margin-bottom:0.75rem;">
+      <h4>Cross-vertical booking</h4>
+      <p>
+        <em>"Mr. John Patel checks in Friday for 3 nights, wants a high-floor quiet room; add a
+        couples massage Saturday afternoon and a table for two at 8; send a payment link for the lot."</em>
+      </p>
+      <p>Tests: preference-aware suggestion + cross-vertical orchestration + payment link creation.</p>
+    </div>
+    <div class="card card-brass" style="margin-bottom:0.75rem;">
+      <h4>Availability query</h4>
+      <p><em>"What's open in the spa tomorrow between 2 and 5?"</em></p>
+      <p>Tests: <code>searchAvailability</code> read.</p>
+    </div>
+    <div class="card card-brass" style="margin-bottom:0.75rem;">
+      <h4>Folio read-back</h4>
+      <p><em>"Pull up everything for Mrs. Chen this stay and tell me what's unpaid."</em></p>
+      <p>Tests: <code>getFolio</code> + <code>listUnpaidBookings</code> reads.</p>
+    </div>
+    <div class="card card-brass">
+      <h4>Financial interrogation</h4>
+      <p><em>"Today's revenue split by vertical, and flag anything still pending payment."</em></p>
+      <p>Tests: <code>getRevenue</code> + <code>listUnpaidBookings</code> reads.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Drift Log -->
+<section class="tab-panel main-content" id="panel-drift-log">
+  <div class="card card-oxblood" style="margin-bottom:1.5rem;">
+    <h4>Standing rule</h4>
+    <p>
+      Frozen contracts may not drift silently. Any deviation a builder must make is recorded
+      here with date, the clause affected, what changed, and why. Until a row is arbitrated
+      and the contract re-frozen, <strong>the code is the source of truth for that clause.</strong>
+    </p>
+  </div>
+  <div class="drift-log">
+    <div class="drift-log-header">Contract-Drift Log — HS-07</div>
+    <div class="drift-log-empty">No drift recorded. Contract and code are in agreement.</div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  HS-07 · MCP Layer · <span class="ref">prd-interactive/07-mcp-layer.html</span>
+  &nbsp;·&nbsp; <a href="../index.html">↑ Hub</a>
+</footer>
+
+<script>
+  function switchTab(e, id) {
+    e.preventDefault();
+    document.querySelectorAll('.tab-bar a').forEach(a => a.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    e.currentTarget.classList.add('active');
+    document.getElementById('panel-' + id).classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+</script>
+</body>
+</html>

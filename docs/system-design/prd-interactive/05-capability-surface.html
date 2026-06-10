@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HS-05 Capability Surface — Hospitality Ops Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+
+<header class="prd-header">
+  <div class="container">
+    <a href="../index.html" class="back-link">← System Design Hub</a>
+    <div class="prd-id">HS-05 · Capability Surface (API)</div>
+    <h1>Capability Surface (API)</h1>
+    <div class="prd-folio-line">
+      <span class="folio-field"><strong>Version</strong> 0.1</span>
+      <span class="folio-field"><strong>Date</strong> 2026-06-10</span>
+      <span class="folio-field"><strong>Owner</strong> Track A + Track F</span>
+      <span class="folio-field">
+        <strong>Contract</strong>&nbsp;
+        <span class="badge badge-draft">Draft</span>
+      </span>
+      <span class="folio-field">
+        <strong>Build</strong>&nbsp;
+        <span class="badge badge-not-started">Not Started</span>
+      </span>
+      <span class="folio-field"><strong>Freezes</strong> Reads · Writes · OpenAPI slice · ops-web screens</span>
+    </div>
+  </div>
+</header>
+
+<nav class="tab-bar" aria-label="PRD sections">
+  <a href="#overview" class="active" onclick="switchTab(event,'overview')">Overview</a>
+  <a href="#reads" onclick="switchTab(event,'reads')">Reads</a>
+  <a href="#writes" onclick="switchTab(event,'writes')">Writes</a>
+  <a href="#ops-web" onclick="switchTab(event,'ops-web')">ops-web Screens</a>
+  <a href="#drift-log" onclick="switchTab(event,'drift-log')">Contract-Drift Log</a>
+</nav>
+
+<!-- Overview -->
+<section class="tab-panel active main-content" id="panel-overview">
+  <div class="card card-teal" style="margin-bottom:1.5rem;">
+    <h4>The symmetry rule</h4>
+    <p>
+      Every endpoint must fully serve <code>ops-web</code>. Every capability notes the
+      ops-web screen it serves <strong>and</strong> the MCP tool (Wave 2) it backs.
+      <strong>No capability may exist solely for the agent.</strong>
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h2>Authoritative HTTP contract</h2>
+    <p style="font-size:0.875rem;">
+      The authoritative HTTP contract is <code class="ref">contracts/WAVE0_02_OPENAPI.yaml</code>.
+      This PRD is the conceptual view — the OpenAPI file has endpoint signatures, DTOs, and
+      error envelopes.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h2>Reads vs Writes</h2>
+    <table class="data-table">
+      <thead><tr><th>Category</th><th>Human gate?</th><th>Write-time revalidation?</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Reads</strong></td>
+          <td>No — freely callable</td>
+          <td>N/A</td>
+        </tr>
+        <tr>
+          <td><strong>Writes</strong></td>
+          <td>Yes — human-authorisation signal required on repercussive writes</td>
+          <td>Yes — every write re-checks atomically</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Reads -->
+<section class="tab-panel main-content" id="panel-reads">
+  <div class="content-block">
+    <h2>Reads — freely callable</h2>
+    <p style="font-size:0.875rem;margin-bottom:1rem;">No human-gate required. Agent or UI calls these freely.</p>
+    <table class="data-table">
+      <thead>
+        <tr><th>Capability</th><th>API operation</th><th>ops-web screen</th><th>MCP tool (Wave 2)</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Search availability</td>
+          <td><code>GET /availability</code></td>
+          <td>Booking search / New booking flow</td>
+          <td><code>searchAvailability</code></td>
+        </tr>
+        <tr>
+          <td>Search customers</td>
+          <td><code>GET /customers?q=…</code></td>
+          <td>Customer lookup sidebar</td>
+          <td><code>searchCustomers</code></td>
+        </tr>
+        <tr>
+          <td>Get customer</td>
+          <td><code>GET /customers/{id}</code></td>
+          <td>Customer detail / folio view</td>
+          <td><code>getCustomer</code></td>
+        </tr>
+        <tr>
+          <td>Get customer preferences</td>
+          <td><code>GET /customers/{id}/preferences</code></td>
+          <td>Customer detail — preferences panel</td>
+          <td><code>getCustomerPreferences</code></td>
+        </tr>
+        <tr>
+          <td>Get folio</td>
+          <td><code>GET /bookings/{id}</code></td>
+          <td>Folio / booking detail</td>
+          <td><code>getFolio</code></td>
+        </tr>
+        <tr>
+          <td>Get revenue</td>
+          <td><code>GET /reports/revenue?window=…&amp;groupBy=…</code></td>
+          <td>Revenue dashboard</td>
+          <td><code>getRevenue</code></td>
+        </tr>
+        <tr>
+          <td>List unpaid bookings</td>
+          <td><code>GET /bookings?status=unpaid</code></td>
+          <td>Unpaid bookings report</td>
+          <td><code>listUnpaidBookings</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Writes -->
+<section class="tab-panel main-content" id="panel-writes">
+  <div class="content-block">
+    <h2>Writes — confirm-then-commit · revalidated · human-gated</h2>
+    <p style="font-size:0.875rem;margin-bottom:1rem;">
+      All writes re-check availability and price atomically.
+      Repercussive writes require a human-authorisation signal (see <a href="06-human-in-the-loop.html">HS-06</a>).
+      Conflict on stale state returns <code>409</code> with current state.
+    </p>
+    <table class="data-table">
+      <thead>
+        <tr><th>Capability</th><th>API operation</th><th>ops-web screen</th><th>MCP tool (Wave 2)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Create customer</td><td><code>POST /customers</code></td><td>Customer creation form</td><td><code>createCustomer</code></td></tr>
+        <tr><td>Update customer</td><td><code>PUT /customers/{id}</code></td><td>Customer edit form</td><td><code>updateCustomer</code></td></tr>
+        <tr><td>Set preference</td><td><code>PUT /customers/{id}/preferences/{key}</code></td><td>Preferences editor</td><td><code>setCustomerPreference</code></td></tr>
+        <tr><td>Delete preference</td><td><code>DELETE /customers/{id}/preferences/{key}</code></td><td>Preferences editor</td><td><code>deleteCustomerPreference</code></td></tr>
+        <tr><td>Create booking</td><td><code>POST /bookings</code></td><td>New booking wizard</td><td><code>createBooking</code></td></tr>
+        <tr><td>Modify booking line</td><td><code>PATCH /bookings/{id}/lines/{lineId}</code></td><td>Booking detail — edit line</td><td><code>modifyBookingLine</code></td></tr>
+        <tr><td>Cancel booking line</td><td><code>DELETE /bookings/{id}/lines/{lineId}</code></td><td>Booking detail — cancel line</td><td><code>cancelBookingLine</code></td></tr>
+        <tr><td>Create payment link</td><td><code>POST /bookings/{id}/payments</code></td><td>Booking detail — send link</td><td><code>createPaymentLink</code></td></tr>
+        <tr><td>Capture payment</td><td><code>POST /payments/{id}/capture</code></td><td>Booking detail — capture button</td><td><code>capturePayment</code></td></tr>
+        <tr><td>Cancel authorisation</td><td><code>POST /payments/{id}/cancel</code></td><td>Booking detail — cancel auth</td><td><code>cancelAuthorisation</code></td></tr>
+        <tr><td>Refund payment</td><td><code>POST /payments/{id}/refund</code></td><td>Booking detail — refund panel</td><td><code>refundPayment</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ops-web Screens -->
+<section class="tab-panel main-content" id="panel-ops-web">
+  <div class="card card-brass" style="margin-bottom:1.5rem;">
+    <h4>ops-web has no standalone PRD</h4>
+    <p>
+      <code>ops-web</code> is a complete standalone operations console (Head 1).
+      Its screens are inventoried here, preserving the "no agent-only endpoints" symmetry.
+      Every capability maps to both a UI screen and an MCP tool.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h2>Screen inventory</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th>Screen</th><th>Purpose</th><th>Capabilities used</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Customer list</td>
+          <td>Search and browse customers</td>
+          <td><code>searchCustomers</code></td>
+        </tr>
+        <tr>
+          <td>Customer detail</td>
+          <td>View profile, preferences, folios</td>
+          <td><code>getCustomer</code>, <code>getCustomerPreferences</code>, <code>getFolio</code></td>
+        </tr>
+        <tr>
+          <td>Customer create / edit</td>
+          <td>Create or update customer</td>
+          <td><code>createCustomer</code>, <code>updateCustomer</code></td>
+        </tr>
+        <tr>
+          <td>Booking search</td>
+          <td>Find available slots across verticals</td>
+          <td><code>searchAvailability</code></td>
+        </tr>
+        <tr>
+          <td>New booking wizard</td>
+          <td>Build and confirm a cross-vertical folio</td>
+          <td><code>createBooking</code> (revalidated at submit)</td>
+        </tr>
+        <tr>
+          <td>Booking / folio detail</td>
+          <td>View folio, lines, payments, status</td>
+          <td><code>getFolio</code></td>
+        </tr>
+        <tr>
+          <td>Modify / cancel line</td>
+          <td>Adjust or cancel a booking line</td>
+          <td><code>modifyBookingLine</code>, <code>cancelBookingLine</code></td>
+        </tr>
+        <tr>
+          <td>Payment panel</td>
+          <td>Send link, capture, cancel, refund</td>
+          <td><code>createPaymentLink</code>, <code>capturePayment</code>, <code>cancelAuthorisation</code>, <code>refundPayment</code></td>
+        </tr>
+        <tr>
+          <td>Revenue dashboard</td>
+          <td>Revenue by vertical and date window</td>
+          <td><code>getRevenue</code></td>
+        </tr>
+        <tr>
+          <td>Unpaid bookings</td>
+          <td>List all bookings with outstanding balance</td>
+          <td><code>listUnpaidBookings</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Drift Log -->
+<section class="tab-panel main-content" id="panel-drift-log">
+  <div class="card card-oxblood" style="margin-bottom:1.5rem;">
+    <h4>Standing rule</h4>
+    <p>
+      Frozen contracts may not drift silently. Any deviation a builder must make is recorded
+      here with date, the clause affected, what changed, and why. Until a row is arbitrated
+      and the contract re-frozen, <strong>the code is the source of truth for that clause.</strong>
+    </p>
+  </div>
+  <div class="drift-log">
+    <div class="drift-log-header">Contract-Drift Log — HS-05</div>
+    <div class="drift-log-empty">No drift recorded. Contract and code are in agreement.</div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  HS-05 · Capability Surface · <span class="ref">prd-interactive/05-capability-surface.html</span>
+  &nbsp;·&nbsp; <a href="../index.html">↑ Hub</a>
+</footer>
+
+<script>
+  function switchTab(e, id) {
+    e.preventDefault();
+    document.querySelectorAll('.tab-bar a').forEach(a => a.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    e.currentTarget.classList.add('active');
+    document.getElementById('panel-' + id).classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HS-02 Vertical Strategies — Hospitality Ops Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+
+<header class="prd-header">
+  <div class="container">
+    <a href="../index.html" class="back-link">← System Design Hub</a>
+    <div class="prd-id">HS-02 · Vertical Strategies</div>
+    <h1>Vertical Strategies</h1>
+    <div class="prd-folio-line">
+      <span class="folio-field"><strong>Version</strong> 0.1</span>
+      <span class="folio-field"><strong>Date</strong> 2026-06-10</span>
+      <span class="folio-field"><strong>Owner</strong> Track B</span>
+      <span class="folio-field">
+        <strong>Contract</strong>&nbsp;
+        <span class="badge badge-draft">Draft</span>
+      </span>
+      <span class="folio-field">
+        <strong>Build</strong>&nbsp;
+        <span class="badge badge-not-started">Not Started</span>
+      </span>
+      <span class="folio-field"><strong>Freezes</strong> Strategy interface · Rooms · Spa · F&amp;B · Events</span>
+    </div>
+  </div>
+</header>
+
+<nav class="tab-bar" aria-label="PRD sections">
+  <a href="#overview" class="active" onclick="switchTab(event,'overview')">Overview</a>
+  <a href="#interface" onclick="switchTab(event,'interface')">Strategy Interface</a>
+  <a href="#rooms" onclick="switchTab(event,'rooms')">Rooms</a>
+  <a href="#spa" onclick="switchTab(event,'spa')">Spa</a>
+  <a href="#fb" onclick="switchTab(event,'fb')">F&amp;B</a>
+  <a href="#events" onclick="switchTab(event,'events')">Events</a>
+  <a href="#drift-log" onclick="switchTab(event,'drift-log')">Contract-Drift Log</a>
+</nav>
+
+<!-- Overview -->
+<section class="tab-panel active main-content" id="panel-overview">
+  <div class="card card-teal" style="margin-bottom:1.5rem;">
+    <h4>The strategy principle</h4>
+    <p>
+      Every vertical implements a common strategy interface in <code>core-api</code>.
+      This is where "Rooms behave this way, F&amp;B behaves that way" lives — in one place, not
+      in parallel silos. The booking, payment, and ledger flows stay vertical-agnostic.
+    </p>
+  </div>
+
+  <div class="content-block">
+    <h2>Strategy interface — three concerns</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th>Method</th><th>Returns</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>getAvailability(productId, window, quantity)</code></td>
+          <td><code>AvailabilityResult</code></td>
+          <td>How many units are available in the given window</td>
+        </tr>
+        <tr>
+          <td><code>calculatePrice(product, line)</code></td>
+          <td><code>Money</code></td>
+          <td>The price for this BookingLine at booking time (snapshot)</td>
+        </tr>
+        <tr>
+          <td><code>defaultCaptureMode()</code></td>
+          <td><code>CaptureMode</code></td>
+          <td><code>IMMEDIATE</code> or <code>MANUAL</code> — the payment default for this vertical</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="content-block">
+    <h2>Design rules</h2>
+    <div class="step-flow">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body"><p><strong>Strategy is a plug-in.</strong> The booking service calls the strategy interface; it does not branch on vertical type.</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body"><p><code>defaultCaptureMode()</code> is a default, not a mandate. The caller may explicitly pass a different capture mode on the payment request.</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body"><p><strong>No strategy may add endpoints.</strong> All capability lives in the shared API surface (HS-05).</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body"><p><strong>Price snapshot at booking time.</strong> The strategy calculates price once; that value is stored on the BookingLine and never recalculated.</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="content-block">
+    <h2>Vertical defaults at a glance</h2>
+    <table class="data-table">
+      <thead><tr><th>Vertical</th><th>Availability unit</th><th>Default capture</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Rooms</strong></td><td>Room / night</td><td><code>MANUAL</code></td></tr>
+        <tr><td><strong>Spa</strong></td><td>Therapist time slot</td><td>TBD</td></tr>
+        <tr><td><strong>F&amp;B</strong></td><td>Covers per service period</td><td><code>IMMEDIATE</code></td></tr>
+        <tr><td><strong>Events</strong></td><td>Experience capacity</td><td>TBD</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Strategy Interface tab (same as overview detail) -->
+<section class="tab-panel main-content" id="panel-interface">
+  <div class="content-block">
+    <h2>Strategy interface (conceptual)</h2>
+    <pre>interface VerticalStrategy {
+    AvailabilityResult getAvailability(productId, window, quantity);
+    Money              calculatePrice(product, bookingLine);
+    CaptureMode        defaultCaptureMode();
+}</pre>
+    <p style="font-size:0.875rem;margin-top:0.75rem;">
+      The strategy is selected by the <code>vertical</code> field on <code>Product</code>.
+      Concrete implementations: <code>RoomsStrategy</code>, <code>SpaStrategy</code>,
+      <code>FoodBeverageStrategy</code>, <code>EventsStrategy</code>.
+    </p>
+    <div class="card card-brass" style="margin-top:1rem;">
+      <h4>No strategy adds endpoints</h4>
+      <p>Strategy classes are domain-internal. They do not expose HTTP endpoints.
+        All capability surfaces through the shared API (HS-05).</p>
+    </div>
+  </div>
+</section>
+
+<!-- Rooms -->
+<section class="tab-panel main-content" id="panel-rooms">
+  <div class="content-block">
+    <h2>Rooms strategy</h2>
+    <table class="data-table">
+      <thead><tr><th>Concern</th><th>Behaviour</th></tr></thead>
+      <tbody>
+        <tr><td>Availability unit</td><td>Room / night. Capacity = number of rooms of a given category per date.</td></tr>
+        <tr><td>Pricing</td><td>Per-night rate from the Product config; multiplied by nights on the BookingLine.</td></tr>
+        <tr><td>Default capture mode</td><td><span class="badge badge-in-progress" style="font-size:0.7rem;">MANUAL</span> — authorise card at booking; capture at checkout.</td></tr>
+        <tr><td>Partial capture</td><td>Supported. E.g. early checkout: authorise full stay, capture actual nights.</td></tr>
+        <tr><td>Multi-capture</td><td>Out of scope. One auth → at most one capture.</td></tr>
+      </tbody>
+    </table>
+    <div class="card card-brass" style="margin-top:1rem;">
+      <h4>Why MANUAL for Rooms?</h4>
+      <p>
+        Hotels traditionally hold a card at check-in and charge at check-out, once the
+        actual charges are known (incidentals, early departure, etc.). <code>MANUAL</code>
+        models this: authorise the expected amount, capture the actual amount at departure.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- Spa -->
+<section class="tab-panel main-content" id="panel-spa">
+  <div class="content-block">
+    <h2>Spa strategy</h2>
+    <table class="data-table">
+      <thead><tr><th>Concern</th><th>Behaviour</th></tr></thead>
+      <tbody>
+        <tr><td>Availability unit</td><td>Therapist time slot. Capacity = available slots per treatment per time window.</td></tr>
+        <tr><td>Pricing</td><td>Per-session rate from the Product config.</td></tr>
+        <tr><td>Default capture mode</td><td>TBD — to be defined during Track B build.</td></tr>
+        <tr><td>Preference support</td><td><code>spa_therapist</code> preference (e.g. <code>female</code>) can be matched by the MCP layer.</td></tr>
+      </tbody>
+    </table>
+    <div class="card card-brass" style="margin-top:1rem;">
+      <h4>Preference-aware suggestion</h4>
+      <p>
+        The API returns availability alongside stored preferences.
+        The LLM does the matching — not the strategy. The strategy just returns slots;
+        the MCP layer filters based on customer preferences.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- F&B -->
+<section class="tab-panel main-content" id="panel-fb">
+  <div class="content-block">
+    <h2>F&amp;B (Restaurants) strategy</h2>
+    <table class="data-table">
+      <thead><tr><th>Concern</th><th>Behaviour</th></tr></thead>
+      <tbody>
+        <tr><td>Availability unit</td><td>Covers per service period. Capacity = max covers per period.</td></tr>
+        <tr><td>Pricing</td><td>Per-cover rate; total is <code>quantity × rate</code>.</td></tr>
+        <tr><td>Default capture mode</td><td><span class="badge badge-frozen" style="font-size:0.7rem;">IMMEDIATE</span> — auth and capture together at booking.</td></tr>
+        <tr><td>Service periods</td><td>Examples: breakfast 07:00–10:00, lunch 12:00–14:30, dinner 18:00–22:00.</td></tr>
+      </tbody>
+    </table>
+    <div class="card card-teal" style="margin-top:1rem;">
+      <h4>Why IMMEDIATE for F&amp;B?</h4>
+      <p>
+        Restaurant covers are pre-paid at the time of booking. There is no outstanding
+        balance to settle later — the charge is known and final at confirmation.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- Events -->
+<section class="tab-panel main-content" id="panel-events">
+  <div class="content-block">
+    <h2>Events strategy</h2>
+    <table class="data-table">
+      <thead><tr><th>Concern</th><th>Behaviour</th></tr></thead>
+      <tbody>
+        <tr><td>Availability unit</td><td>Experience capacity. Capacity = max participants per event.</td></tr>
+        <tr><td>Pricing</td><td>Per-person rate from the Product config.</td></tr>
+        <tr><td>Default capture mode</td><td>TBD — to be defined during Track B build.</td></tr>
+        <tr><td>Examples</td><td>City tour, Hyde Park horse ride. Capacity-limited, date/time fixed.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Drift Log -->
+<section class="tab-panel main-content" id="panel-drift-log">
+  <div class="card card-oxblood" style="margin-bottom:1.5rem;">
+    <h4>Standing rule</h4>
+    <p>
+      Frozen contracts may not drift silently. Any deviation a builder must make is recorded
+      here with date, the clause affected, what changed, and why. Until a row is arbitrated
+      and the contract re-frozen, <strong>the code is the source of truth for that clause.</strong>
+    </p>
+  </div>
+  <div class="drift-log">
+    <div class="drift-log-header">Contract-Drift Log — HS-02</div>
+    <div class="drift-log-empty">No drift recorded. Contract and code are in agreement.</div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  HS-02 · Vertical Strategies · <span class="ref">prd-interactive/02-vertical-strategies.html</span>
+  &nbsp;·&nbsp; <a href="../index.html">↑ Hub</a>
+</footer>
+
+<script>
+  function switchTab(e, id) {
+    e.preventDefault();
+    document.querySelectorAll('.tab-bar a').forEach(a => a.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    e.currentTarget.classList.add('active');
+    document.getElementById('panel-' + id).classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+</script>
+</body>
+</html>
