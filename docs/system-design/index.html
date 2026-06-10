@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hospitality Ops Platform — System Design Hub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <div class="wordmark">Hospitality Operations Platform</div>
+    <div class="property-code">hotel-sim · System Design Hub</div>
+    <div class="tagline">Living documentation & frozen Wave-0 contract surface</div>
+  </div>
+</header>
+
+<div class="stat-strip">
+  <div class="container" style="display:flex;flex-wrap:wrap;gap:0;width:100%;">
+    <div class="stat-item">
+      <div class="stat-number">9</div>
+      <div class="stat-label">PRDs</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-number">2</div>
+      <div class="stat-label">Frozen Contracts</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-number">7</div>
+      <div class="stat-label">Draft Contracts</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-number">2</div>
+      <div class="stat-label">In Progress</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-number">4</div>
+      <div class="stat-label">Verticals</div>
+    </div>
+  </div>
+</div>
+
+<main class="main-content">
+
+  <div class="how-to-read">
+    <h3>How to read this site</h3>
+    <p>
+      Every PRD carries <strong>two independent statuses</strong>.
+      <strong>Contract status</strong> (<code>Draft</code> → <code>Frozen</code>) governs whether the spec is a valid build target.
+      Once frozen, a contract may not drift silently — any deviation a builder must make is recorded in the PRD's <strong>Contract-Drift Log</strong>.
+      Until a row is arbitrated and the contract re-frozen, <em>the code is the source of truth for that clause.</em>
+      <strong>Build status</strong> (<code>Not Started</code> → <code>In Progress</code> → <code>Implemented</code>) tracks reality as waves land.
+      Wave 1 may begin only after frozen contracts gate it.
+    </p>
+  </div>
+
+  <div class="section-rule"><h2>PRD Register</h2></div>
+
+  <div class="prd-register">
+
+    <!-- HS-00 -->
+    <div class="folio-row">
+      <div class="folio-id">HS-00</div>
+      <div class="folio-body">
+        <div class="folio-title">System Overview</div>
+        <p class="folio-summary">The thesis, two-head architecture, project map, and living design memory. Foundation for all other PRDs.</p>
+      </div>
+      <div class="folio-meta">
+        <div class="stamp-row">
+          <span class="badge-label">Contract</span>
+          <span class="badge badge-frozen">Frozen</span>
+        </div>
+        <div class="stamp-row">
+          <span class="badge-label">Build</span>
+          <span class="badge badge-in-progress">In Progress</span>
+        </div>
+        <div class="folio-links">
+          <a href="prd-interactive/00-system-overview.html">⚡ Interactive</a>
+          <a href="prd/00-system-overview.md">↓ Markdown</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- HS-01 -->
+    <div class="folio-row">
+      <div class="folio-id">HS-01</div>
+      <div class="folio-body">
+        <div class="folio-title">Domain &amp; Booking Model</div>
+        <p class="folio-summary">Customer, Product (polymorphic), Booking/Folio, BookingLine, and Inventory — the unified domain abstraction across all four verticals.</p>
+      </div>
+      <div class="folio-meta">
+        <div class="stamp-row">
+          <span class="badge-label">Contract</span>
+          <span class="badge badge-draft">Draft</span>
+        </div>
+        <div class="stamp-row">
+          <span class="badge-label">Build</span>
+          <span class="badge badge-not-started">Not Started</span>
+        </div>
+        <div class="folio-links">
+          <a href="prd-interactive/01-domain-booking-model.html">⚡ Interactive</a>
+          <a href="prd/01-domain-booking-model.md">↓ Markdown</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- HS-02 -->
+    <div class="folio-row">
+      <div class="folio-id">HS-02</div>
+      <div class="folio-body">
+        <div class="folio-title">Vertical Strategies</div>
+        <p class="folio-summary">The strategy interface implemented by Rooms, Spa, F&amp;B, and Events — availability, pricing, and capture-mode defaults per vertical.</p>
+      </div>
+      <div class="folio-meta">
+        <div class="stamp-row">
+          <span class="badge-label">Contract</span>
+          <span class="badge badge-draft">Draft</span>
+        </div>
+        <div class="stamp-row">
+          <span class="badge-label">Build</span>
+          <span class="badge badge-not-started">Not Started</span>
+        </div>
+        <div class="folio-links">
+          <a href="prd-interactive/02-vertical-strategies.html">⚡ Interactive</a>
+          <a href="prd/02-vertical-strategies.md">↓ Markdown</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- HS-03 -->
+    <div class="folio-row">
+      <div class="folio-id">HS-03</div>
+      <div class="folio-body">
+        <div class="folio-title">Finance &amp; Ledger</div>
+        <p class="folio-summary">Capture modes (IMMEDIATE / MANUAL), ledger posting rules, partial capture, refunds, and the Adyen-flavoured payment reference taxonomy.</p>
+      </div>
+      <div class="folio-meta">
+        <div class="stamp-row">
+          <span class="badge-label">Contract</span>
+          <span class="badge badge-draft">Draft</span>
+        </div>
+        <div class="stamp-row">
+          <span class="badge-label">Build</span>
+          <span class="badge badge-not-started">Not Started</span>
+        </div>
+        <div class="folio-links">
+          <a href="prd-interactive/03-finance-ledger.html">⚡ Interactive</a>
+          <a href="prd/03-finance-ledger.md">↓ Markdown</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- HS-04 -->
+    <div class="folio-row">
+      <div class="folio-id">HS-04</div>
+      <div class="folio-body">
+        <div class="folio-title">Payments &amp; PSP Integration</div>
+        <p class="folio-summary">Reference taxonomy, payment-link flow, webhook event vocabulary, idempotency rules, and the payments-sim / pay-web components.</p>
+      </div>
+      <div class="folio-meta">
+        <div class="stamp-row">
+          <span class="badge-label">Contract</span>
+          <span class="badge badge-draft">Draft</span>
+        </div>
+        <div class="stamp-row">
+          <span class="badge-label">Build</span>
+          <span class="badge badge-not-started">Not Started</span>
+        </div>
+        <div class="folio-links">
+          <a href="prd-interactive/04-payments-psp.html">⚡ Interactive</a>
+          <a href="prd/04-payments-psp.md">↓ Markdown</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- HS-05 -->
+    <div class="folio-row">
+      <div class="folio-id">HS-05</div>
+      <div class="folio-body">
+        <div class="folio-title">Capability Surface (API)</div>
+        <p class="folio-summary">All reads and writes, the OpenAPI contract slice, and the ops-web screen inventory — every capability maps to both a UI screen and an MCP tool.</p>
+      </div>
+      <div class="folio-meta">
+        <div class="stamp-row">
+          <span class="badge-label">Contract</span>
+          <span class="badge badge-draft">Draft</span>
+        </div>
+        <div class="stamp-row">
+          <span class="badge-label">Build</span>
+          <span class="badge badge-not-started">Not Started</span>
+        </div>
+        <div class="folio-links">
+          <a href="prd-interactive/05-capability-surface.html">⚡ Interactive</a>
+          <a href="prd/05-capability-surface.md">↓ Markdown</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- HS-06 -->
+    <div class="folio-row">
+      <div class="folio-id">HS-06</div>
+      <div class="folio-body">
+        <div class="folio-title">Human-in-the-Loop &amp; Safety</div>
+        <p class="folio-summary">The four HITL mechanisms: confirm-then-commit, write-time revalidation, server-side commit gate, and dual-channel confirmation.</p>
+      </div>
+      <div class="folio-meta">
+        <div class="stamp-row">
+          <span class="badge-label">Contract</span>
+          <span class="badge badge-draft">Draft</span>
+        </div>
+        <div class="stamp-row">
+          <span class="badge-label">Build</span>
+          <span class="badge badge-not-started">Not Started</span>
+        </div>
+        <div class="folio-links">
+          <a href="prd-interactive/06-human-in-the-loop.html">⚡ Interactive</a>
+          <a href="prd/06-human-in-the-loop.md">↓ Markdown</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- HS-07 -->
+    <div class="folio-row">
+      <div class="folio-id">HS-07</div>
+      <div class="folio-body">
+        <div class="folio-title">MCP Layer (Head 2)</div>
+        <p class="folio-summary">The three proof capabilities, tool-wrapper design, and the additive-only constraint. Documented now; built in Wave 2.</p>
+      </div>
+      <div class="folio-meta">
+        <div class="stamp-row">
+          <span class="badge-label">Contract</span>
+          <span class="badge badge-draft">Draft</span>
+        </div>
+        <div class="stamp-row">
+          <span class="badge-label">Build</span>
+          <span class="badge badge-deferred">Deferred (Wave 2)</span>
+        </div>
+        <div class="folio-links">
+          <a href="prd-interactive/07-mcp-layer.html">⚡ Interactive</a>
+          <a href="prd/07-mcp-layer.md">↓ Markdown</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- HS-08 -->
+    <div class="folio-row">
+      <div class="folio-id">HS-08</div>
+      <div class="folio-body">
+        <div class="folio-title">Delivery Plan &amp; Waves</div>
+        <p class="folio-summary">Wave 0 / 1 / 2 structure, the six parallel tracks (A–F), integration owner role, and the gate conditions between waves.</p>
+      </div>
+      <div class="folio-meta">
+        <div class="stamp-row">
+          <span class="badge-label">Contract</span>
+          <span class="badge badge-frozen">Frozen</span>
+        </div>
+        <div class="stamp-row">
+          <span class="badge-label">Build</span>
+          <span class="badge badge-in-progress">In Progress</span>
+        </div>
+        <div class="folio-links">
+          <a href="prd-interactive/08-delivery-plan.html">⚡ Interactive</a>
+          <a href="prd/08-delivery-plan.md">↓ Markdown</a>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /prd-register -->
+
+</main>
+
+<footer class="site-footer">
+  hotel-sim · System Design · <span class="ref">docs/system-design/index.html</span>
+</footer>
+
+</body>
+</html>
