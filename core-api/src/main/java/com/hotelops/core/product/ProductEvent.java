@@ -16,6 +16,7 @@ import java.time.OffsetDateTime;
 @Entity
 @Table(name = "product_event")
 @DiscriminatorValue("EVENT")
+@PrimaryKeyJoinColumn(name = "product_id")   // JTI child PK column (SCH-014); matches frozen schema
 @Getter
 @Setter
 @NoArgsConstructor

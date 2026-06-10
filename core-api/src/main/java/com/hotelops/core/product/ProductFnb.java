@@ -13,6 +13,7 @@ import lombok.Setter;
 @Entity
 @Table(name = "product_fnb")
 @DiscriminatorValue("FNB")
+@PrimaryKeyJoinColumn(name = "product_id")   // JTI child PK column (SCH-013); matches frozen schema
 @Getter
 @Setter
 @NoArgsConstructor
