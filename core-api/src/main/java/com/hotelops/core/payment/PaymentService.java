@@ -1,20 +1,24 @@
 package com.hotelops.core.payment;
 
 import com.hotelops.core.booking.Booking;
+import com.hotelops.core.booking.BookingLine;
+import com.hotelops.core.booking.BookingLineRepository;
 import com.hotelops.core.booking.BookingRepository;
 import com.hotelops.core.booking.BookingService;
+import com.hotelops.core.common.enums.BookingLineStatus;
 import com.hotelops.core.common.enums.CaptureMode;
 import com.hotelops.core.common.enums.PaymentStatus;
 import com.hotelops.core.common.enums.RefundStatus;
 import com.hotelops.core.common.error.StateChangedException;
-import com.hotelops.core.ledger.LedgerService;
 import com.hotelops.core.ledger.OutboxEvent;
 import com.hotelops.core.ledger.OutboxEventRepository;
+import com.hotelops.core.product.vertical.VerticalStrategyRegistry;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.UUID;
 
@@ -27,35 +31,89 @@ import java.util.UUID;
  * - CANCELLATION of uncaptured auth → no posting (nothing was posted).
  * - CAPTURE → enqueue PAYMENT_CAPTURED outbox event → LedgerService posts REVENUE.
  * - REFUND  → enqueue REFUND_SETTLED outbox event  → LedgerService posts REFUND_REVERSAL.
+ *
+ * WHK-015 — async completion model: operator-facing methods are split into
+ *   request* (called by the 202 controller — validates only) and
+ *   settle*  (called by the inbound webhook — flips state + enqueues outbox).
+ * Refund was already split (createRefund / settleRefund); capture and cancel now match.
  */
 @Service
 @Transactional
 public class PaymentService {
 
+    /** Prefix matching the PSP envelope examples in WAVE0_03 §3. */
+    private static final String MERCHANT_REF_PREFIX = "MR-";
+
     private final PaymentRepository paymentRepository;
     private final RefundRepository refundRepository;
     private final BookingRepository bookingRepository;
+    private final BookingLineRepository bookingLineRepository;
     private final BookingService bookingService;
     private final OutboxEventRepository outboxRepository;
-    private final LedgerService ledgerService;
+    private final VerticalStrategyRegistry strategyRegistry;
 
     public PaymentService(PaymentRepository paymentRepository,
                           RefundRepository refundRepository,
                           BookingRepository bookingRepository,
+                          BookingLineRepository bookingLineRepository,
                           BookingService bookingService,
                           OutboxEventRepository outboxRepository,
-                          LedgerService ledgerService) {
+                          VerticalStrategyRegistry strategyRegistry) {
         this.paymentRepository = paymentRepository;
         this.refundRepository = refundRepository;
         this.bookingRepository = bookingRepository;
+        this.bookingLineRepository = bookingLineRepository;
         this.bookingService = bookingService;
         this.outboxRepository = outboxRepository;
-        this.ledgerService = ledgerService;
+        this.strategyRegistry = strategyRegistry;
+    }
+
+    // -------------------------------------------------------------------------
+    // API-008: createPaymentLink — orchestrate booking lookup, shopperReference,
+    // captureMode defaulting (per the booking's vertical strategy), and minting.
+    // -------------------------------------------------------------------------
+
+    /**
+     * API-008 high-level entrypoint for the controller. Looks up the booking, copies
+     * {@code shopperReference} from the customer, defaults {@code captureMode} from the
+     * first active line's vertical strategy when omitted, mints {@code merchantReference},
+     * and creates a {@code PENDING} payment. {@code paymentLinkId} stays {@code null}
+     * until the PSP mints it (Feature 2).
+     */
+    public Payment createPaymentLink(UUID bookingId, long amount, String currency,
+                                     CaptureMode captureModeOverride) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new EntityNotFoundException("Booking not found: " + bookingId));
+        String shopperReference = booking.getCustomer().getShopperReference();
+        CaptureMode mode = (captureModeOverride != null)
+                ? captureModeOverride
+                : resolveDefaultCaptureMode(booking);
+        return createPayment(bookingId, shopperReference, mintMerchantReference(),
+                mode, amount, currency);
     }
 
     /**
+     * Default capture mode is the {@link com.hotelops.core.product.vertical.VerticalStrategy#defaultCaptureMode}
+     * of the booking's first active line (ordered by createdAt ascending). For an empty
+     * folio (no active lines yet — edge case), fall back to {@link CaptureMode#MANUAL}.
+     */
+    private CaptureMode resolveDefaultCaptureMode(Booking booking) {
+        return bookingLineRepository.findByBookingId(booking.getId()).stream()
+                .filter(l -> l.getStatus() == BookingLineStatus.ACTIVE)
+                .min(Comparator.comparing(BookingLine::getCreatedAt))
+                .map(line -> strategyRegistry.forVertical(line.getVertical()).defaultCaptureMode())
+                .orElse(CaptureMode.MANUAL);
+    }
+
+    // -------------------------------------------------------------------------
+    // Create
+    // -------------------------------------------------------------------------
+
+    /**
      * Create a new payment record (link/intent stage).
-     * No posting at this stage — only a DB record is created.
+     * No posting at this stage — only a DB record is created. The caller mints
+     * {@code merchantReference} via {@link #mintMerchantReference()} — it is
+     * never accepted from the HTTP request body (SCH-031, API-008).
      */
     public Payment createPayment(UUID bookingId, String shopperReference,
                                  String merchantReference, CaptureMode captureMode,
@@ -72,9 +130,125 @@ public class PaymentService {
         return paymentRepository.save(p);
     }
 
+    // -------------------------------------------------------------------------
+    // Capture — split request/settle (WHK-015)
+    // -------------------------------------------------------------------------
+
     /**
-     * Record an AUTHORISATION webhook result.
-     * INV-006: no ledger posting on authorisation.
+     * API-010 request side: validate that a capture is permissible. Does NOT flip state,
+     * does NOT enqueue an outbox event, does NOT post to the ledger. The CAPTURE webhook
+     * (WHK-007) is the authoritative settlement signal — see {@link #settleCapture}.
+     *
+     * Validates INV-005 (single-capture) and SCH-032 (amount ≤ authorised). A {@code null}
+     * captureAmount means "full capture" — resolved to {@code amountAuthorised}.
+     *
+     * @return the payment unmodified, so the 202 body reflects current truth.
+     */
+    public Payment requestCapture(UUID paymentId, Long captureAmount) {
+        Payment p = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
+        long amount = (captureAmount != null) ? captureAmount : p.getAmountAuthorised();
+        assertCapturable(p, amount);
+        return p;
+    }
+
+    /**
+     * WHK-007 settlement side: called by the inbound CAPTURE webhook. Flips status to
+     * CAPTURED, stamps {@code amountCaptured}, enqueues the {@code PAYMENT_CAPTURED}
+     * outbox event (the ledger processor posts per-line REVENUE), and recalculates the
+     * booking roll-ups (INV-004).
+     *
+     * Re-runs INV-005 + SCH-032 as a defensive guard so a duplicated CAPTURE webhook
+     * (one that escaped inbox dedupe) cannot double-post. The V2 unique index
+     * {@code uq_posting_capture_line} is the final backstop.
+     */
+    public Payment settleCapture(String merchantReference, long capturedAmount, String pspReference) {
+        Payment p = paymentRepository.findByMerchantReference(merchantReference)
+                .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + merchantReference));
+        assertCapturable(p, capturedAmount);
+
+        if (pspReference != null && !pspReference.isBlank()) {
+            p.setPspReference(pspReference);
+        }
+        p.setAmountCaptured(capturedAmount);
+        p.setStatus(PaymentStatus.CAPTURED);
+        paymentRepository.save(p);
+
+        // INV-006: enqueue outbox event for the ledger processor (per-line REVENUE).
+        enqueueOutboxEvent("PAYMENT_CAPTURED", "PAYMENT", p.getId(), Map.of(
+                "paymentId",         p.getId().toString(),
+                "bookingId",         p.getBooking().getId().toString(),
+                "amountCaptured",    capturedAmount,
+                "currency",          p.getCurrency(),
+                "pspReference",      p.getPspReference() != null ? p.getPspReference() : "",
+                "merchantReference", p.getMerchantReference()
+        ));
+
+        // INV-004: refresh booking roll-ups.
+        bookingService.recalculateTotals(p.getBooking());
+        bookingRepository.save(p.getBooking());
+
+        return p;
+    }
+
+    /** WHK-010: mark payment CAPTURE_FAILED. No ledger effect. */
+    public Payment settleCaptureFailure(String merchantReference, String reason) {
+        Payment p = paymentRepository.findByMerchantReference(merchantReference)
+                .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + merchantReference));
+        p.setStatus(PaymentStatus.CAPTURE_FAILED);
+        return paymentRepository.save(p);
+    }
+
+    // -------------------------------------------------------------------------
+    // Cancellation — split request/settle (WHK-015)
+    // -------------------------------------------------------------------------
+
+    /** API-011 request side: validate that cancellation is permissible. State change happens on the webhook. */
+    public Payment requestCancellation(UUID paymentId) {
+        Payment p = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
+        if (p.getAmountCaptured() > 0) {
+            throw new StateChangedException(
+                    "Cannot cancel a payment that has already been captured: " + paymentId,
+                    p.getStatus());
+        }
+        return p;
+    }
+
+    /**
+     * WHK-008 settlement: webhook CANCELLATION of an uncaptured auth. No outbox, no posting.
+     * Re-checks amountCaptured == 0 defensively (a CAPTURE could have raced in before).
+     */
+    public Payment settleCancellation(String merchantReference) {
+        Payment p = paymentRepository.findByMerchantReference(merchantReference)
+                .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + merchantReference));
+        if (p.getAmountCaptured() > 0) {
+            throw new StateChangedException(
+                    "Cannot cancel a payment that has already been captured: " + p.getId(),
+                    p.getStatus());
+        }
+        p.setStatus(PaymentStatus.CANCELLED);
+        return paymentRepository.save(p);
+    }
+
+    /** WHK-011: AUTH_EXPIRY — only flips state if currently AUTHORISED; ignored when CAPTURED. */
+    public Payment settleAuthExpiry(String merchantReference) {
+        Payment p = paymentRepository.findByMerchantReference(merchantReference)
+                .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + merchantReference));
+        if (p.getStatus() == PaymentStatus.AUTHORISED) {
+            p.setStatus(PaymentStatus.AUTH_EXPIRED);
+            return paymentRepository.save(p);
+        }
+        return p;
+    }
+
+    // -------------------------------------------------------------------------
+    // Authorisation (webhook-only; already split — unchanged)
+    // -------------------------------------------------------------------------
+
+    /**
+     * WHK-006: AUTHORISATION webhook → stamp pspReference / amountAuthorised /
+     * authExpiresAt; status PENDING → AUTHORISED. No posting (INV-006).
      */
     public Payment recordAuthorisation(String merchantReference, String pspReference,
                                        long amountAuthorised,
@@ -85,85 +259,16 @@ public class PaymentService {
         p.setAmountAuthorised(amountAuthorised);
         p.setAuthExpiresAt(authExpiresAt);
         p.setStatus(PaymentStatus.AUTHORISED);
-        // INV-006: no outbox event, no ledger posting
         return paymentRepository.save(p);
     }
 
-    /**
-     * Capture a payment (full or partial).
-     *
-     * INV-005: rejects capture if payment is already in CAPTURED/PARTIALLY_REFUNDED/REFUNDED.
-     * INV-003: re-validates that amount <= amount_authorised (DB constraint backs this up).
-     * INV-006: enqueues PAYMENT_CAPTURED outbox event → LedgerService posts REVENUE.
-     * INV-004: updates booking.amountPaid via BookingService.recalculateTotals.
-     */
-    public Payment capture(UUID paymentId, long captureAmount) {
-        Payment p = paymentRepository.findById(paymentId)
-                .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
-
-        // INV-005: single-capture rule
-        if (p.getStatus() == PaymentStatus.CAPTURED
-                || p.getStatus() == PaymentStatus.PARTIALLY_REFUNDED
-                || p.getStatus() == PaymentStatus.REFUNDED) {
-            throw new StateChangedException(
-                    "Payment " + paymentId + " has already been captured (INV-005); multi-capture rejected.",
-                    p.getStatus());
-        }
-        if (p.getStatus() != PaymentStatus.AUTHORISED
-                && !(p.getCaptureMode() == CaptureMode.IMMEDIATE
-                     && p.getStatus() == PaymentStatus.PENDING)) {
-            throw new StateChangedException(
-                    "Payment " + paymentId + " is not in a capturable state: " + p.getStatus(),
-                    p.getStatus());
-        }
-        if (captureAmount > p.getAmountAuthorised() && p.getStatus() == PaymentStatus.AUTHORISED) {
-            throw new StateChangedException(
-                    "Capture amount " + captureAmount + " exceeds authorised amount " + p.getAmountAuthorised(),
-                    p.getAmountAuthorised());
-        }
-
-        p.setAmountCaptured(captureAmount);
-        p.setStatus(PaymentStatus.CAPTURED);
-        paymentRepository.save(p);
-
-        // INV-006: enqueue outbox event for the ledger processor
-        enqueueOutboxEvent("PAYMENT_CAPTURED", "PAYMENT", p.getId(), Map.of(
-                "paymentId",         p.getId().toString(),
-                "bookingId",         p.getBooking().getId().toString(),
-                "amountCaptured",    captureAmount,
-                "currency",          p.getCurrency(),
-                "pspReference",      p.getPspReference() != null ? p.getPspReference() : "",
-                "merchantReference", p.getMerchantReference()
-        ));
-
-        // INV-004: refresh booking roll-ups
-        bookingService.recalculateTotals(p.getBooking());
-        bookingRepository.save(p.getBooking());
-
-        return p;
-    }
+    // -------------------------------------------------------------------------
+    // Refund (already split: createRefund = request, settleRefund = settle)
+    // -------------------------------------------------------------------------
 
     /**
-     * Cancel an uncaptured authorisation.
-     * INV-006: no ledger posting — nothing was captured, nothing to reverse.
-     */
-    public Payment cancelAuthorisation(UUID paymentId) {
-        Payment p = paymentRepository.findById(paymentId)
-                .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
-        if (p.getAmountCaptured() > 0) {
-            throw new StateChangedException(
-                    "Cannot cancel a payment that has already been captured: " + paymentId,
-                    p.getStatus());
-        }
-        p.setStatus(PaymentStatus.CANCELLED);
-        // INV-006: no outbox event, no ledger posting
-        return paymentRepository.save(p);
-    }
-
-    /**
-     * Initiate a refund.
-     * INV-006: enqueues REFUND_SETTLED outbox event → LedgerService posts REFUND_REVERSAL.
-     * INV-004: updates booking.amountRefunded when the refund settles (via webhook).
+     * API-012 request side: validate refund and persist PENDING refund row.
+     * Settlement (state flip + outbox + roll-ups) is {@link #settleRefund} (WHK-009).
      */
     public Refund createRefund(UUID paymentId, long refundAmount,
                                String merchantReference, String reason) {
@@ -185,9 +290,8 @@ public class PaymentService {
     }
 
     /**
-     * Settle a refund (called when REFUND webhook arrives).
-     * INV-006: enqueues REFUND_SETTLED outbox event → LedgerService posts REFUND_REVERSAL.
-     * INV-004: updates booking roll-ups.
+     * WHK-009 settlement side (called when REFUND webhook arrives).
+     * Enqueues REFUND_SETTLED outbox event → per-line REFUND_REVERSAL postings.
      */
     public Refund settleRefund(String refundMerchantReference, String pspReference) {
         Refund r = refundRepository.findByMerchantReference(refundMerchantReference)
@@ -202,7 +306,6 @@ public class PaymentService {
         paymentRepository.save(p);
         refundRepository.save(r);
 
-        // INV-006: enqueue outbox event for the ledger processor
         enqueueOutboxEvent("REFUND_SETTLED", "REFUND", r.getId(), Map.of(
                 "refundId",          r.getId().toString(),
                 "paymentId",         p.getId().toString(),
@@ -214,14 +317,53 @@ public class PaymentService {
                 "merchantReference", r.getMerchantReference()
         ));
 
-        // INV-004: refresh booking roll-ups
         bookingService.recalculateTotals(p.getBooking());
         bookingRepository.save(p.getBooking());
 
         return r;
     }
 
+    /** WHK-010: mark refund REFUND_FAILED. Parent payment status untouched. */
+    public Refund settleRefundFailure(String refundMerchantReference, String reason) {
+        Refund r = refundRepository.findByMerchantReference(refundMerchantReference)
+                .orElseThrow(() -> new EntityNotFoundException("Refund not found: " + refundMerchantReference));
+        r.setStatus(RefundStatus.REFUND_FAILED);
+        return refundRepository.save(r);
+    }
+
     // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Mint a server-side {@code merchantReference} (SCH-031, reconciliation anchor).
+     * Mirrors {@code CustomerService.mintShopperReference()}.
+     */
+    public static String mintMerchantReference() {
+        return MERCHANT_REF_PREFIX + UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private void assertCapturable(Payment p, long captureAmount) {
+        if (p.getStatus() == PaymentStatus.CAPTURED
+                || p.getStatus() == PaymentStatus.PARTIALLY_REFUNDED
+                || p.getStatus() == PaymentStatus.REFUNDED) {
+            throw new StateChangedException(
+                    "Payment " + p.getId() + " has already been captured (INV-005); multi-capture rejected.",
+                    p.getStatus());
+        }
+        if (p.getStatus() != PaymentStatus.AUTHORISED
+                && !(p.getCaptureMode() == CaptureMode.IMMEDIATE
+                     && p.getStatus() == PaymentStatus.PENDING)) {
+            throw new StateChangedException(
+                    "Payment " + p.getId() + " is not in a capturable state: " + p.getStatus(),
+                    p.getStatus());
+        }
+        if (captureAmount > p.getAmountAuthorised() && p.getStatus() == PaymentStatus.AUTHORISED) {
+            throw new StateChangedException(
+                    "Capture amount " + captureAmount + " exceeds authorised amount " + p.getAmountAuthorised(),
+                    p.getAmountAuthorised());
+        }
+    }
 
     private void enqueueOutboxEvent(String eventType, String aggregateType,
                                     UUID aggregateId, Map<String, Object> payload) {
