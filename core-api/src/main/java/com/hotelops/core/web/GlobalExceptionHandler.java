@@ -1,6 +1,7 @@
 package com.hotelops.core.web;
 
 import com.hotelops.core.common.error.HumanAuthRequiredException;
+import com.hotelops.core.common.error.InvalidPspSignatureException;
 import com.hotelops.core.common.error.StateChangedException;
 import com.hotelops.core.web.dto.ApiError;
 import com.hotelops.core.web.dto.StateConflict;
@@ -22,6 +23,7 @@ import java.util.Map;
  *   EntityNotFoundException        -> 404 ApiError
  *   StateChangedException (INV-003)-> 409 StateConflict (currentState carries availability)
  *   HumanAuthRequiredException (INV-007) -> 428 ApiError
+ *   InvalidPspSignatureException (WHK-014) -> 401 ApiError
  *   any request-validation failure -> 400 ApiError
  */
 @RestControllerAdvice
@@ -57,6 +59,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> humanAuthRequired(HumanAuthRequiredException ex) {
         return ResponseEntity.status(HttpStatus.PRECONDITION_REQUIRED)
                 .body(new ApiError("HUMAN_AUTH_REQUIRED", ex.getMessage()));
+    }
+
+    /** 401 — WHK-014 inbound webhook missing or has an invalid {@code X-PSP-Signature}. */
+    @ExceptionHandler(InvalidPspSignatureException.class)
+    public ResponseEntity<ApiError> invalidSignature(InvalidPspSignatureException ex) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(new ApiError("INVALID_SIGNATURE", ex.getMessage()));
     }
 
     /** 400 — @Valid request body failed bean validation. */
