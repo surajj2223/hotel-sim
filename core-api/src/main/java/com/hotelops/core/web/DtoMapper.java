@@ -4,13 +4,17 @@ import com.hotelops.core.booking.Booking;
 import com.hotelops.core.booking.BookingLine;
 import com.hotelops.core.customer.Customer;
 import com.hotelops.core.customer.CustomerPreference;
+import com.hotelops.core.payment.Payment;
+import com.hotelops.core.payment.Refund;
 import com.hotelops.core.product.Product;
 import com.hotelops.core.product.ProductRoom;
 import com.hotelops.core.web.dto.AvailabilityResult;
 import com.hotelops.core.web.dto.BookingLineResponse;
 import com.hotelops.core.web.dto.CustomerResponse;
 import com.hotelops.core.web.dto.FolioResponse;
+import com.hotelops.core.web.dto.PaymentResponse;
 import com.hotelops.core.web.dto.PreferenceResponse;
+import com.hotelops.core.web.dto.RefundResponse;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -93,5 +97,46 @@ public class DtoMapper {
                 booking.getAmountRefunded(),
                 booking.getBalance(),
                 lineDtos);
+    }
+
+    public RefundResponse toRefundResponse(Refund r) {
+        return new RefundResponse(
+                r.getId(),
+                r.getPayment().getId(),    // lazy-proxy id: no initialisation
+                r.getAmount(),
+                r.getCurrency(),
+                r.getStatus(),
+                r.getMerchantReference(),
+                r.getPspReference(),
+                r.getOriginalReference(),
+                r.getReason(),
+                r.getCreatedAt());
+    }
+
+    /**
+     * Assemble a payment with its refunds (fetched explicitly by the caller via
+     * RefundRepository.findByPaymentId to avoid initialising the lazy collection).
+     */
+    public PaymentResponse toPaymentResponse(Payment p, List<Refund> refunds) {
+        List<RefundResponse> refundDtos = refunds.stream()
+                .map(this::toRefundResponse)
+                .toList();
+        return new PaymentResponse(
+                p.getId(),
+                p.getBooking().getId(),     // lazy-proxy id: no initialisation
+                p.getStatus(),
+                p.getCaptureMode(),
+                p.getCurrency(),
+                p.getAmountRequested(),
+                p.getAmountAuthorised(),
+                p.getAmountCaptured(),
+                p.getAmountRefunded(),
+                p.getShopperReference(),
+                p.getMerchantReference(),
+                p.getPspReference(),
+                p.getPaymentLinkId(),
+                p.getAuthExpiresAt(),
+                p.getCreatedAt(),
+                refundDtos);
     }
 }

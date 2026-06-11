@@ -1,5 +1,7 @@
 package com.hotelops.core.web;
 
+import com.hotelops.core.common.error.HumanAuthRequiredException;
+import com.hotelops.core.common.error.InvalidPspSignatureException;
 import com.hotelops.core.common.error.StateChangedException;
 import com.hotelops.core.web.dto.ApiError;
 import com.hotelops.core.web.dto.StateConflict;
@@ -20,6 +22,8 @@ import java.util.Map;
  * Maps domain/validation exceptions to the frozen error envelopes (WAVE0_02_OPENAPI.yaml):
  *   EntityNotFoundException        -> 404 ApiError
  *   StateChangedException (INV-003)-> 409 StateConflict (currentState carries availability)
+ *   HumanAuthRequiredException (INV-007) -> 428 ApiError
+ *   InvalidPspSignatureException (WHK-014) -> 401 ApiError
  *   any request-validation failure -> 400 ApiError
  */
 @RestControllerAdvice
@@ -43,6 +47,25 @@ public class GlobalExceptionHandler {
         Object currentState = (current == null) ? Map.of() : Map.of("availableUnits", current);
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new StateConflict("STATE_CONFLICT", ex.getMessage(), currentState));
+    }
+
+    /**
+     * 428 — INV-007 repercussive write attempted without an {@code X-Human-Auth} signal.
+     * The exception also carries {@code @ResponseStatus(PRECONDITION_REQUIRED)} as a
+     * defensive default, but this handler ensures the body is the spec's {@code ApiError}
+     * envelope rather than Spring's default error structure.
+     */
+    @ExceptionHandler(HumanAuthRequiredException.class)
+    public ResponseEntity<ApiError> humanAuthRequired(HumanAuthRequiredException ex) {
+        return ResponseEntity.status(HttpStatus.PRECONDITION_REQUIRED)
+                .body(new ApiError("HUMAN_AUTH_REQUIRED", ex.getMessage()));
+    }
+
+    /** 401 — WHK-014 inbound webhook missing or has an invalid {@code X-PSP-Signature}. */
+    @ExceptionHandler(InvalidPspSignatureException.class)
+    public ResponseEntity<ApiError> invalidSignature(InvalidPspSignatureException ex) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(new ApiError("INVALID_SIGNATURE", ex.getMessage()));
     }
 
     /** 400 — @Valid request body failed bean validation. */

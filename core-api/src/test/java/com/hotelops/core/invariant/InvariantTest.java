@@ -164,8 +164,21 @@ class InvariantTest {
     @Mock LedgerService ledgerService;
     @Mock BookingService bookingService;
 
+    /**
+     * Helper: build a PaymentService with the test mocks. Mirrors the production
+     * constructor; strategyRegistry is the class-level {@link #strategyRegistry} mock.
+     */
+    private PaymentService newPaymentService() {
+        return new PaymentService(
+                paymentRepository, refundRepository, bookingRepository,
+                bookingLineRepository, bookingService, outboxRepository,
+                strategyRegistry);
+    }
+
     @Test
     void INV_005_second_capture_attempt_is_rejected() {
+        // WHK-015: validation lives on the request side; settle must also re-check
+        // defensively. We exercise the request side here.
         UUID paymentId = UUID.randomUUID();
         Payment p = new Payment();
         try {
@@ -179,11 +192,9 @@ class InvariantTest {
 
         when(paymentRepository.findById(paymentId)).thenReturn(Optional.of(p));
 
-        PaymentService svc = new PaymentService(
-                paymentRepository, refundRepository, bookingRepository,
-                bookingService, outboxRepository, ledgerService);
+        PaymentService svc = newPaymentService();
 
-        assertThatThrownBy(() -> svc.capture(paymentId, 5000L))
+        assertThatThrownBy(() -> svc.requestCapture(paymentId, 5000L))
                 .isInstanceOf(StateChangedException.class)
                 .hasMessageContaining("INV-005");
     }
@@ -192,9 +203,7 @@ class InvariantTest {
 
     @Test
     void INV_006_authorisation_produces_no_outbox_event() {
-        PaymentService svc = new PaymentService(
-                paymentRepository, refundRepository, bookingRepository,
-                bookingService, outboxRepository, ledgerService);
+        PaymentService svc = newPaymentService();
 
         Payment p = new Payment();
         p.setMerchantReference("MR-NO-POST");
@@ -214,7 +223,9 @@ class InvariantTest {
     }
 
     @Test
-    void INV_006_capture_enqueues_PAYMENT_CAPTURED_outbox_event() {
+    void INV_006_capture_settle_enqueues_PAYMENT_CAPTURED_outbox_event() {
+        // WHK-007/015: outbox emission happens on the settle side (CAPTURE webhook),
+        // not on the operator-facing request side.
         UUID paymentId = UUID.randomUUID();
         Payment p = new Payment();
         try {
@@ -237,17 +248,16 @@ class InvariantTest {
         } catch (Exception e) { throw new RuntimeException(e); }
         p.setBooking(booking);
 
-        when(paymentRepository.findById(paymentId)).thenReturn(Optional.of(p));
+        when(paymentRepository.findByMerchantReference("MR-CAPTURE-001"))
+                .thenReturn(Optional.of(p));
         when(paymentRepository.save(any())).thenAnswer(i -> i.getArguments()[0]);
         when(outboxRepository.save(any())).thenAnswer(i -> i.getArguments()[0]);
         doNothing().when(bookingService).recalculateTotals(any());
         when(bookingRepository.save(any())).thenAnswer(i -> i.getArguments()[0]);
 
-        PaymentService svc = new PaymentService(
-                paymentRepository, refundRepository, bookingRepository,
-                bookingService, outboxRepository, ledgerService);
+        PaymentService svc = newPaymentService();
 
-        svc.capture(paymentId, 10000L);
+        svc.settleCapture("MR-CAPTURE-001", 10000L, "PSP-CAPTURE-001");
 
         // INV-006: exactly one outbox event of type PAYMENT_CAPTURED
         verify(outboxRepository).save(argThat(e ->
@@ -256,26 +266,27 @@ class InvariantTest {
     }
 
     @Test
-    void INV_006_cancel_of_uncaptured_auth_produces_no_outbox_event() {
-        UUID paymentId = UUID.randomUUID();
+    void INV_006_cancellation_settle_produces_no_outbox_event() {
+        // WHK-008/015: CANCELLATION webhook flips state to CANCELLED with no outbox event
+        // and no ledger posting — nothing was captured.
         Payment p = new Payment();
         try {
             var f = Payment.class.getDeclaredField("id");
             f.setAccessible(true);
-            f.set(p, paymentId);
+            f.set(p, UUID.randomUUID());
         } catch (Exception e) { throw new RuntimeException(e); }
         p.setStatus(PaymentStatus.AUTHORISED);
         p.setAmountCaptured(0L);
         p.setAmountRefunded(0L);
+        p.setMerchantReference("MR-CANCEL-001");
 
-        when(paymentRepository.findById(paymentId)).thenReturn(Optional.of(p));
+        when(paymentRepository.findByMerchantReference("MR-CANCEL-001"))
+                .thenReturn(Optional.of(p));
         when(paymentRepository.save(any())).thenAnswer(i -> i.getArguments()[0]);
 
-        PaymentService svc = new PaymentService(
-                paymentRepository, refundRepository, bookingRepository,
-                bookingService, outboxRepository, ledgerService);
+        PaymentService svc = newPaymentService();
 
-        svc.cancelAuthorisation(paymentId);
+        svc.settleCancellation("MR-CANCEL-001");
 
         // INV-006: no outbox event for cancellation of uncaptured auth
         verify(outboxRepository, never()).save(any());
