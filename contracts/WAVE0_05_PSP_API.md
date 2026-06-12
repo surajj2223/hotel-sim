@@ -58,7 +58,7 @@
 | PSP-014 | **`pay-web` deferred.** No `pay-web` directory, service, or compose entry is added. Future cosmetic upgrade replacing the human-facing surface of PSP-013; the webhook seam is unchanged. | No `pay-web` symbol/import/path exists in the repo. The trigger (PSP-013) is the only way a non-test operator drives an `AUTHORISATION` in Feature 2. | RX-001 §2 D1 |
 | PSP-015 | **WHK-015 concrete sync seam (test-only).** `payments-sim` exposes `POST /v1/test/payment-links/{paymentLinkId}/authorise?sync=true` (and the analogous flag on the capture/cancel/refund admin triggers — see §6) that delivers the webhook **synchronously** (the HTTP call returns after `core-api` has processed the callback). The seam is registered as a `@Profile("test")` bean or external test harness — **unreachable** when `payments-sim` runs in its non-test profile. Async (`sync=false` or omitted) is the production path. | A smoke test executes `capture → trigger(sync=true) → assert CAPTURED + per-line postings` with no sleeps; starting `payments-sim` without the test profile makes the `sync=true` query fail (`404` or feature-flag rejection) so the production path stays async. The seam is restated as test-only per the `CLAUDE.md` rule. | WHK-015 |
 | PSP-016 | **Webhook delivery — outbound from `payments-sim` to `core-api`.** Every emitted webhook is a `POST` to `core-api`'s receiver (`API-013`) with the `WAVE0_03 §3` envelope and the `X-PSP-Signature` HMAC header (`WHK-014`). The callback URL is configurable via environment (`CORE_API_WEBHOOK_URL`) so compose can wire it without hard-coding. A non-2xx response from `core-api` does not retry in the POC (paired with PSP-008's retry deferral); the failure is logged in `payments-sim` for operator inspection. | Webhook hits the configured URL; signature header validates against `core-api`'s shared secret; `4xx` response is logged but not retried; envelope shape passes a contract test against `WAVE0_03 §3`. | WHK-002, WHK-014 |
-| PSP-017 | **SCF-005 compose surface (detail).** `docker-compose.yml` gains two services: `payments-sim-db` (postgres:16-alpine, distinct named volume, `pg_isready` healthcheck) and `payments-sim` (built from `payments-sim/Dockerfile`, `depends_on` `payments-sim-db` `service_healthy`, `8081:8081`, healthcheck on `/actuator/health`). `core-api` `depends_on` continues to gate only on its own `db`; the end-to-end smoke test waits on **both** DBs (`db` and `payments-sim-db`) healthy *and* both apps (`core-api`, `payments-sim`) healthy before issuing the first request. `payments-sim` is configured with `CORE_API_WEBHOOK_URL=http://core-api:8080/v1/payments/webhooks` (or the URL pinned by `API-013`). | `docker compose ps` shows all four services `(healthy)`; `docker compose config` validates; the smoke test does not race against an unready DB on either side. | SCF-005, RX-001 §4 |
+| PSP-017 | **SCF-005 compose surface (detail).** `docker-compose.yml` gains two services: `payments-sim-db` (postgres:16-alpine, distinct named volume, `pg_isready` healthcheck) and `payments-sim` (built from `payments-sim/Dockerfile`, `depends_on` `payments-sim-db` `service_healthy`, `8081:8081`, healthcheck on `/actuator/health`). `core-api` `depends_on` continues to gate only on its own `db`; the end-to-end smoke test waits on **both** DBs (`db` and `payments-sim-db`) healthy *and* both apps (`core-api`, `payments-sim`) healthy before issuing the first request. `payments-sim` is configured with `CORE_API_WEBHOOK_URL=http://core-api:8080/webhooks/psp` (or the URL pinned by `API-013`). | `docker compose ps` shows all four services `(healthy)`; `docker compose config` validates; the smoke test does not race against an unready DB on either side. | SCF-005, RX-001 §4 |
 
 ---
 
@@ -90,7 +90,7 @@ Request:
   "amount":            70000,
   "currency":          "GBP",
   "captureMode":       "MANUAL",
-  "callbackUrl":       "http://core-api:8080/v1/payments/webhooks"
+  "callbackUrl":       "http://core-api:8080/webhooks/psp"
 }
 ```
 `callbackUrl` is optional; if omitted, `payments-sim` uses its `CORE_API_WEBHOOK_URL`
@@ -449,7 +449,7 @@ Pinned naming choices (so the implementing task does not have to re-decide):
 | `SPRING_DATASOURCE_URL` | `jdbc:postgresql://payments-sim-db:5432/pspsim` | datasource (PSP-012) |
 | `SPRING_DATASOURCE_USERNAME` | `pspsim` | |
 | `SPRING_DATASOURCE_PASSWORD` | `pspsim` | |
-| `CORE_API_WEBHOOK_URL` | `http://core-api:8080/v1/payments/webhooks` | PSP-016 |
+| `CORE_API_WEBHOOK_URL` | `http://core-api:8080/webhooks/psp` | PSP-016 |
 | `PSP_WEBHOOK_SECRET` | `<POC shared secret>` | WHK-014 HMAC |
 | `SPRING_PROFILES_ACTIVE` | (unset in prod compose; `test` only in test compose) | gates `/v1/test/...` |
 
