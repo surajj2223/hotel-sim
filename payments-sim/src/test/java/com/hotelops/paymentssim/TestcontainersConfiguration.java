@@ -12,10 +12,12 @@ public class TestcontainersConfiguration {
 	@Bean
 	@ServiceConnection
 	PostgreSQLContainer<?> postgresContainer() {
-		// Mirrors core-api's pattern, against postgres:16-alpine. payments-sim has no
-		// JPA-mapped enums in 1A (entities deferred to 1B), so the stringtype=unspecified
-		// param is omitted here and added alongside the first enum-bearing entity.
+		// stringtype=unspecified lets Hibernate send String params that Postgres can
+		// implicitly cast to the psp_payment_status / psp_refund_status enum types
+		// (the @Enumerated(EnumType.STRING) fields on PspPayment / PspRefund). Same
+		// idiom as core-api's application.yml.
 		return new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"))
-				.withDatabaseName("pspsim");
+				.withDatabaseName("pspsim")
+				.withUrlParam("stringtype", "unspecified");
 	}
 }

@@ -44,7 +44,7 @@ class PaymentsSimApplicationTests {
 				versions.add(rs.getString(1));
 			}
 		}
-		assertThat(versions).containsExactly("1");
+		assertThat(versions).containsExactly("1", "2");
 	}
 
 	@Test
