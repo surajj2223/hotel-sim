@@ -163,6 +163,8 @@ Finance/ledger is a **first-class showcase feature**, not credibility dressing.
 | (compose)      | docker-compose   | Wires everything; home of the end-to-end smoke test. |
 | MCP server     | (Wave 2)         | Head 2 — thin additive tool-wrapper over `core-api` endpoints. |
 
+> ⚠️ **The `pay-web` and `db | Postgres (Docker) | Single instance.` rows above are superseded in part by [RX-001](refactor-x/RX-001-psp-direction-and-statefulness.md)** (see Freeze Ledger `WAVE0_00 §1b`). Original text preserved; do not build against the superseded portion without checking the ledger.
+
 ### `payments-sim` behaviour
 - Accepts `shopperReference` + `merchantReference` (stores, does not invent them).
 - **Mints** `pspReference` and `paymentLinkId` (realistically formatted).
@@ -223,6 +225,8 @@ propagated.
   - Light sequencing: A's interfaces land day one; B/C/D/E/F then run flat out.
   - One **integration owner** holds compose + the end-to-end smoke test.
 
+  > ⚠️ **Package E above is superseded in part by [RX-001](refactor-x/RX-001-psp-direction-and-statefulness.md)** (see Freeze Ledger `WAVE0_00 §1b`). Original text preserved; do not build against the superseded portion without checking the ledger.
+
 - **Wave 2 — Integration & MCP:**
   full smoke test (create customer → search → cross-vertical folio → confirm in tray/chat →
   pay → see postings), then the MCP server as the last, lightest piece.
@@ -247,6 +251,8 @@ boundaries (never modify contracts — flag instead).
 - `ops-web` is a complete product; MCP is strictly additive; no agent-only endpoints.
 - Stack: `core-api` + `payments-sim` (Spring Boot), `ops-web` + `pay-web` (React),
   Postgres on Docker, docker-compose.
+
+> ⚠️ **The `pay-web` mention and the single-Postgres framing in the stack line above are superseded in part by [RX-001](refactor-x/RX-001-psp-direction-and-statefulness.md)** (see Freeze Ledger `WAVE0_00 §1b`). Original text preserved; do not build against the superseded portion without checking the ledger.
 
 ---
 

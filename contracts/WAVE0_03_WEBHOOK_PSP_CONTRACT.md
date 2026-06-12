@@ -72,6 +72,8 @@ stores and echoes them, never mints them.
 
 ## 3. Webhook envelope (WHK-002)
 
+> ⚠️ **The "`pay-web`/`payments-sim` produce" phrasing below is superseded in part by [RX-001](refactor-x/RX-001-psp-direction-and-statefulness.md)** (see Freeze Ledger `WAVE0_00 §1b`). Original text preserved; do not build against the superseded portion without checking the ledger. The envelope itself (WHK-002) is unchanged.
+
 Common envelope on every event (POC JSON; `pay-web`/`payments-sim` produce, `core-api`
 consumes):
 
@@ -231,6 +233,8 @@ PSP; PSP signature authenticates the *callback*.
 | Status | `FROZEN` (authoritative in `WAVE0_00 §1b`). Next: `IN-BUILD` when Stage 2 code starts. |
 | Sign-off | ☑ frozen this commit — implementation may proceed against WHK-001..015. |
 | Consumers | `payments-sim`, `pay-web`, `core-api` payment orchestration, integration owner |
+
+> ⚠️ **The `pay-web` mention in the Consumers row above is superseded in part by [RX-001](refactor-x/RX-001-psp-direction-and-statefulness.md)** (see Freeze Ledger `WAVE0_00 §1b`). Original text preserved; do not build against the superseded portion without checking the ledger.
 
 ## 9. Verification log
 

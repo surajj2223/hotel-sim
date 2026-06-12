@@ -108,6 +108,8 @@ and a new `SCF-` row — via the change protocol in `WAVE0_00_OVERVIEW.md` §4, 
 
 ## 5. Requirements (`SCF-`)
 
+> ⚠️ **SCF-003 is superseded in part as a forward spec by [RX-001](refactor-x/RX-001-psp-direction-and-statefulness.md)** (see Freeze Ledger `WAVE0_00 §1b`). Original requirement text and the §6 verification record are preserved; do not build against the superseded portion without checking the ledger.
+
 | ID | Requirement | Acceptance criteria | Depends-on |
 |----|-------------|---------------------|------------|
 | SCF-001 | `core-api` exposes a health endpoint. | `spring-boot-starter-actuator` present; `GET /actuator/health` returns `200 {"status":"UP"}`. | — |

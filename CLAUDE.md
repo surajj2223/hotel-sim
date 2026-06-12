@@ -30,6 +30,24 @@ build does not mean the design decision was correct — only a frozen, reviewed 
 - Every commit message cites the requirement ID(s) it implements (e.g.
   `feat(core-api): per-line REVENUE postings [WHK-007, WHK-012]`).
 
+## Refactor-x supersedence (how frozen contracts evolve)
+
+When a frozen decision turns, the delta is recorded in an append-only `RX-` record under
+`contracts/refactor-x/`, **never** by editing the frozen contract in place. The mechanism:
+
+- **Never edit a frozen contract in place to reflect a decision change.** Add a
+  pointer-only banner beside the superseded statement; record the *what* in the `RX-`
+  record. Banners say only "superseded by RX-NNN, see Freeze Ledger" — they never restate
+  or summarise the new decision, and they never mutate verification-log rows.
+- **The Freeze Ledger (@contracts/WAVE0_00_OVERVIEW.md §1b) `Superseded-by` column is
+  authoritative.** **Never build against a frozen requirement without first checking its
+  `Superseded-by` cell.** Verification logs in the superseded files describe what shipped,
+  not the current forward spec — read both.
+- **`RX-` records are themselves frozen and append-only.** Revised by a superseding
+  `RX-NNN+1`, never edited in place. Same discipline as the `WAVE0_0X` set.
+- New requirements born inside an `RX-` (e.g. SCF-005 born in RX-001) are listed in
+  §1b under the originating artifact with the `RX-` as their source of truth.
+
 ## How to work (plan-then-build, gated)
 
 1. **Read before writing.** Inspect the actual files — entities, services, repositories,
@@ -84,8 +102,16 @@ a status — do not write `FROZEN` into it.)
 
 Durable context that is *not* status (safe to keep here):
 - Stage 1 (customer + room booking, no money) is built and HTTP-wired on `main`.
-- Stage 2 (get paid) contracts are frozen but **not yet built**: API-008..013 + WHK-001..015.
-  The existing payment/ledger domain code is unwired and carries GAP-1 (per-line revenue) and
-  GAP-2 (outbox idempotency) — fix these *as part of* the Stage 2 build, per the audit.
+- Stage 2 — the **right half** (Feature 1) shipped: payment entities, `PaymentService`
+  request/settle split, inbound webhook receiver (API-013 / WHK-001..014), outbox → ledger
+  postings. GAP-1 (per-line revenue) and GAP-2 (outbox idempotency) are closed as part of
+  that build. Defer to the Freeze Ledger for per-ID freeze/done status — never restate it
+  here.
+- Stage 2 — the **left half** (Feature 2, active work) is being drafted now: a real
+  `payments-sim` service and the outbound seam from `core-api`. Its contract surface is
+  `WAVE0_05_PSP_API.md` (DRAFT) + RX-001 + SCF-005. **No Feature 2 implementation code
+  before `WAVE0_05` is FROZEN in the ledger.** See @contracts/refactor-x/RX-001-psp-direction-and-statefulness.md
+  for D1 (`pay-web` deferred), D2 (`payments-sim` stateful with its own Postgres), D3
+  (fail-loud / no-retry outbound + tx-ordering invariant).
 - `getRevenue` and other reporting reads are deferred to Stage 6. Per-line posting
   correctness is proven in Stage 2 by asserting `LedgerPosting` rows directly in tests.

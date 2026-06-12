@@ -19,6 +19,8 @@ you implement.
 | `WAVE0_03_WEBHOOK_PSP_CONTRACT.md` | `payments-sim` event vocabulary, payloads, idempotency; `core-api` consumer rules | `payments-sim`, `pay-web`, `core-api` payment orchestration |
 | `WAVE0_04_SCAFFOLD.md` | Repo layout, docker-compose, health checks, run instructions | Integration owner; every package at setup |
 
+> ⚠️ **The `pay-web` mention in the `WAVE0_03` consumer cell above is superseded in part by [RX-001](refactor-x/RX-001-psp-direction-and-statefulness.md)** (see Freeze Ledger §1b). Original text preserved; do not build against the superseded portion without checking the ledger.
+
 Glossary/enums live **inside** `WAVE0_01_SCHEMA.sql` (as the single source of truth for
 allowed values) and are referenced — never re-defined — by the other files.
 
@@ -63,14 +65,18 @@ A row is `FROZEN` only when (a) its content is reviewed and signed off, **and** 
 freeze is recorded here with the commit that did it. "Built-against in practice" is noted
 where shipped code already depends on the artifact (which is itself why it is frozen).
 
-| Artifact | Slice / IDs | Status | Frozen-at | Evidence / notes |
-|----------|-------------|--------|-----------|------------------|
-| `WAVE0_01_SCHEMA.sql` | SCH-/ENM-/INV- (all) | **FROZEN** | pre-existing | `V1__wave0_schema.sql` applied; SCH-001..071 referenced in entities; entity tests pass. Change only via a new Flyway migration. |
-| `WAVE0_02_OPENAPI.yaml` | Stage 1 · API-001..007 | **FROZEN** | PR #6 (`ae63af2`) | Controllers + DTOs shipped; `BookingFlowApiTest` asserts the contract. |
-| `WAVE0_02_OPENAPI.yaml` | Stage 2 · API-008..013 | **FROZEN** | (this commit) | Payment paths + webhook receiver. No implementing code yet — clean freeze before the Stage 2 build. |
-| `WAVE0_03_WEBHOOK_PSP_CONTRACT.md` | WHK-001..015 | **FROZEN** | (this commit) | Pairs with API-008..013. Zero `WHK-` in code — implementation has not started. |
-| `WAVE0_04_SCAFFOLD.md` | SCF-001..004 | **FROZEN** | pre-existing | Actuator/health/compose shipped and running. |
-| `WAVE0_AUDIT.md` | — | RECORD (not a contract) | `ab83274` | Rationale for the Stage 2 contracts + the GAP-1/2 fixes; never "freezes". |
+| Artifact | Slice / IDs | Status | Frozen-at | Superseded-by | Evidence / notes |
+|----------|-------------|--------|-----------|---------------|------------------|
+| `WAVE0_01_SCHEMA.sql` | SCH-/ENM-/INV- (all) | **FROZEN** | pre-existing | — | `V1__wave0_schema.sql` applied; SCH-001..071 referenced in entities; entity tests pass. Change only via a new Flyway migration. |
+| `WAVE0_02_OPENAPI.yaml` | Stage 1 · API-001..007 | **FROZEN** | PR #6 (`ae63af2`) | — | Controllers + DTOs shipped; `BookingFlowApiTest` asserts the contract. |
+| `WAVE0_02_OPENAPI.yaml` | Stage 2 · API-008..013 | **FROZEN** | (prior commit) | — | Payment paths + webhook receiver. Implemented in Feature 1 (right half). |
+| `WAVE0_03_WEBHOOK_PSP_CONTRACT.md` | WHK-001..015 | **FROZEN** | (prior commit) | [RX-001](refactor-x/RX-001-psp-direction-and-statefulness.md) (pay-web framing only — WHK substance unchanged) | Pairs with API-008..013. Implemented in Feature 1 (right half). |
+| `WAVE0_04_SCAFFOLD.md` | SCF-001, SCF-002, SCF-004 | **FROZEN** | pre-existing | — | Actuator/health/compose shipped and running. |
+| `WAVE0_04_SCAFFOLD.md` | SCF-003 | **FROZEN** | pre-existing | [RX-001](refactor-x/RX-001-psp-direction-and-statefulness.md) (forward spec only — verification record stands) | Single-Postgres compose shipped & green. Forward spec replaced by SCF-005; SCF-003's §6 verification log is not edited. |
+| RX-001 (`refactor-x/RX-001-psp-direction-and-statefulness.md`) | D1/D2/D3 + SCF-005 | **FROZEN** | (this commit) | — | Records `pay-web`-deferred, `payments-sim`-stateful with own Postgres, fail-loud / no-retry outbound + tx-ordering. Append-only; revise only via RX-002. |
+| `WAVE0_04_SCAFFOLD.md` (via RX-001) | SCF-005 | **FROZEN** | (this commit) | — | Defined in RX-001 §4; compose/health detail in `WAVE0_05 §7` (drafting). Implementation pending Feature 2. |
+| `WAVE0_05_PSP_API.md` | PSP-001..NNN | **DRAFT** | — | — | Outbound PSP API + `payments-sim` internal schema + checkout-sim trigger + WHK-015 concrete sync seam + SCF-005 compose detail. Drafted alongside RX-001; freezes only on arbiter sign-off. |
+| `WAVE0_AUDIT.md` | — | RECORD (not a contract) | `ab83274` | — | Rationale for the Stage 2 contracts + the GAP-1/2 fixes; never "freezes". |
 
 > **FROZEN ≠ DONE.** An artifact being **FROZEN** (its contract is fixed) is separate from
 > its IDs being **DONE** (implemented + tested). Stage 2 here is FROZEN-but-not-built: the
@@ -167,6 +173,8 @@ Until every box is ticked, **nothing parallel starts.** This is the gate.
 - **E.** `payments-sim` + `pay-web`
 - **F.** `ops-web` — a complete console, built against the OpenAPI mock
 
+> ⚠️ **Package E above is superseded in part by [RX-001](refactor-x/RX-001-psp-direction-and-statefulness.md)** (see Freeze Ledger §1b). Original text preserved; do not build against the superseded portion without checking the ledger.
+
 One **integration owner** holds `docker-compose` + the end-to-end smoke test throughout.
 
 ---
@@ -176,4 +184,5 @@ One **integration owner** holds `docker-compose` + the end-to-end smoke test thr
 | Version | Date | Change |
 |---------|------|--------|
 | 0.1 | (draft) | Initial Wave 0 set drafted for sign-off. |
-| 0.2 | (this commit) | Added §1b Freeze Ledger (single source of truth) + §1c reality note. Recorded 01 / 02-Stage1 / 04 FROZEN (built-against); froze 02-Stage2 + 03. |
+| 0.2 | (prior commit) | Added §1b Freeze Ledger (single source of truth) + §1c reality note. Recorded 01 / 02-Stage1 / 04 FROZEN (built-against); froze 02-Stage2 + 03. |
+| 0.3 | 2026-06-12 | §1b: added **Superseded-by** column; populated with RX-001 on the affected rows (`pay-web` framing in `WAVE0_03`; SCF-003's forward spec). Added rows for RX-001 (FROZEN) and SCF-005 (FROZEN, born in RX-001). Registered `WAVE0_05_PSP_API.md` as **DRAFT**. Added pointer banners (no edits to requirement text or verification logs) in §1 consumer cell and §6 Wave 1 packages. |
