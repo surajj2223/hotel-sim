@@ -1,8 +1,8 @@
-# Wave 0 scaffold compose — brings up the only services that exist today:
-# Postgres + core-api. payments-sim / pay-web / ops-web are deferred (see
-# contracts/WAVE0_04_SCAFFOLD.md). core-api's application.yml keeps its localhost
-# datasource defaults for non-compose runs; here we override the host VIA ENVIRONMENT
-# so the same image works both ways.
+# Compose for the POC. Brings up two Postgres instances and two Spring Boot services:
+# core-api (existing) and payments-sim (new in Feature 2 Part 1A, per SCF-005 / PSP-017).
+# Each service's application.yml keeps localhost-default datasources for non-compose runs;
+# here we override host (and the PSP wiring) VIA ENVIRONMENT so the same image works both
+# ways. payments-sim-db is a separate Postgres instance — never co-mingled with `db`.
 
 services:
   db:
@@ -22,6 +22,23 @@ services:
       retries: 10
       start_period: 10s
 
+  payments-sim-db:
+    image: postgres:16-alpine
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: pspsim
+      POSTGRES_USER: pspsim
+      POSTGRES_PASSWORD: pspsim
+    volumes:
+      - payments-sim-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pspsim -d pspsim"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   core-api:
     build:
       context: ./core-api
@@ -35,6 +52,11 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/hotelops
       SPRING_DATASOURCE_USERNAME: hotelops
       SPRING_DATASOURCE_PASSWORD: hotelops
+      # PSP wiring (added under SCF-005 / WAVE0_05 §7.2). core-api does NOT read
+      # these until Feature 2 Part 2 wires the outbound seam (PSP-001..004).
+      PAYMENTS_SIM_BASE_URL: http://payments-sim:8081
+      PSP_API_KEY: poc-psp-secret
+      PSP_WEBHOOK_SECRET: poc-psp-secret
     ports:
       - "8080:8080"
     healthcheck:
@@ -45,5 +67,30 @@ services:
       retries: 12
       start_period: 40s
 
+  payments-sim:
+    build:
+      context: ./payments-sim
+      dockerfile: Dockerfile
+    depends_on:
+      payments-sim-db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://payments-sim-db:5432/pspsim
+      SPRING_DATASOURCE_USERNAME: pspsim
+      SPRING_DATASOURCE_PASSWORD: pspsim
+      # PSP-016: callback URL points at core-api's WHK receiver (API-013, /webhooks/psp).
+      # Not yet exercised in 1A — no webhook dispatcher until Part 1C.
+      CORE_API_WEBHOOK_URL: http://core-api:8080/webhooks/psp
+      PSP_WEBHOOK_SECRET: poc-psp-secret
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
 volumes:
   hotelops-db-data:
+  payments-sim-db-data:
