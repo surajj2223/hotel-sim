@@ -8,6 +8,12 @@ spring:
     url: jdbc:postgresql://localhost:5433/pspsim
     username: pspsim
     password: pspsim
+    hikari:
+      # Send String params as "unspecified" so Postgres native enum types accept them
+      # — same idiom as core-api. Required for the psp_payment_status / psp_refund_status
+      # enums introduced in V1.
+      data-source-properties:
+        stringtype: unspecified
   jpa:
     hibernate:
       ddl-auto: none          # Flyway owns the schema; Hibernate must not touch it
