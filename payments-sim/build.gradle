@@ -17,6 +17,18 @@ repositories {
 	mavenCentral()
 }
 
+configurations.configureEach {
+	resolutionStrategy.eachDependency { details ->
+		// Spring Boot 3.5.0's BOM pulls Testcontainers 1.21.0, which pins
+		// docker-java 3.4.2 to API v1.32 — too old for recent Docker daemons
+		// (minimum supported 1.40). 1.21.4 negotiates the API version via the
+		// daemon's /_ping response instead of hard-coding v1.32.
+		if (details.requested.group == 'org.testcontainers') {
+			details.useVersion('1.21.4')
+		}
+	}
+}
+
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
@@ -38,4 +50,23 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	// Forward Docker env to the test JVM (Gradle daemons don't inherit shell env on
+	// macOS). On hosts where DOCKER_HOST is not exported (e.g. Docker Desktop default),
+	// Testcontainers falls back to ~/.testcontainers.properties.
+	def dockerHost = System.getenv('DOCKER_HOST')
+	def apiVersion = System.getenv('DOCKER_API_VERSION')
+	if (dockerHost) {
+		environment 'DOCKER_HOST', dockerHost
+		systemProperty 'docker.host', dockerHost
+	}
+	if (apiVersion) {
+		environment 'DOCKER_API_VERSION', apiVersion
+		systemProperty 'docker.api.version', apiVersion
+	}
+	// Colima: the host socket path (`~/.colima/default/docker.sock`) cannot be
+	// bind-mounted into containers because it lives outside Colima's virtiofs mount
+	// roots. Tell Testcontainers / Ryuk to bind-mount the in-VM canonical path
+	// instead; `/var/run/docker.sock` inside the VM symlinks to the real engine.
+	def socketOverride = System.getenv('TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE')
+	if (socketOverride) environment 'TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE', socketOverride
 }
