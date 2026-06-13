@@ -95,14 +95,14 @@ paths:
       operationId: searchAvailability
       tags:
       - products
-      summary: Rooms available in a window, with attributes (floor band, quiet, bed type).
+      summary: Products available in a window, with vertical-specific attributes (roomAttributes for ROOM, null for other verticals).
       parameters:
       - name: vertical
         in: query
         required: true
         schema:
           $ref: '#/components/schemas/Vertical'
-        description: Stage 1 supports ROOM only; other values reserved for later slices.
+        description: All registered verticals are supported; resolved via the vertical strategy registry. ROOM and SPA are exercised (Slice A3); FNB and EVENT reserved for later slices.
       - name: startsAt
         in: query
         required: true
@@ -457,7 +457,7 @@ components:
       - SPA
       - FNB
       - EVENT
-      description: ENM-001. Stage 1 implements ROOM only.
+      description: ENM-001. ROOM and SPA are exercised; FNB and EVENT reserved for later slices.
     BookingStatus:
       type: string
       enum:
@@ -1036,9 +1036,10 @@ x-requirements:
     mapsTo:
     - SCH-004
   - id: API-004
-    requirement: Search room availability for a window.
-    acceptance: Returns availableUnits computed from ACTIVE lines + room attributes; ROOM only in Stage
-      1.
+    requirement: Search availability for a window, for any supported vertical.
+    acceptance: Returns availableUnits computed from ACTIVE committed lines via the vertical strategy
+      registry; roomAttributes populated for ROOM products, null for other verticals; ROOM and SPA
+      exercised (Slice A3).
     mapsTo:
     - SCH-010
     - SCH-011
