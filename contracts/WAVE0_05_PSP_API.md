@@ -509,17 +509,36 @@ citation is one of the rows above.
 | Field | Value |
 |-------|-------|
 | Owner | Desk (arbiter) |
-| Status | `DRAFT` (authoritative in `WAVE0_00 §1b`). Next: `FROZEN` on arbiter sign-off; `IN-BUILD` when Feature 2 code starts. |
+| Status | `IN-BUILD` (authoritative in `WAVE0_00 §1b`; frozen at v0.4). Feature 2 Part A (1C-a) landed — see §9a. Part B (1C-b) outbound wiring next. |
 | Sign-off | ☐ pending. |
 | Consumers | `payments-sim` (Feature 2 builder), `core-api` payment orchestration (outbound wiring), integration owner (compose). |
 
 ### 9a. Verification log
 
-*(Empty until Feature 2 build. Per ID: what was built, commit/PR, the test that proves it.)*
+Per ID: what was built, commit/PR, the test that proves it. Filled incrementally as
+Feature 2 lands. Schema/request-side IDs (PSP-009/010 DDL, PSP-001..004 request side,
+PSP-005 store-side) shipped in earlier `payments-sim` PRs (#10 and prior); the rows below
+record where each ID is *proven* as of the current build.
 
 | ID | Built | Commit/PR | Proving test |
 |----|-------|-----------|--------------|
-| PSP-001..017 | — | — | — |
+| PSP-001 | Request side: create-link, mint `PL-`, persist PENDING (`PspPaymentService.createLink`). | PR #10 (`179a224`) | `web.PaymentLinkApiTest` |
+| PSP-002 | Request side: capture intent persisted (`pendingCaptureAmount`); INV-005 guard. | PR #10 (`179a224`) | `web.CaptureApiTest` |
+| PSP-003 | Request side: cancellation intent persisted; cancel-after-capture rejected. | PR #10 (`179a224`) | `web.CancellationApiTest` |
+| PSP-004 | Request side: refund row persisted, distinct refund `pspReference` minted, over-refund guard. | PR #10 (`179a224`) | `web.RefundApiTest` |
+| PSP-005 | Stores-never-mints (shopper/merchant echoed) + mints-on-event: `PL-` at link, `PSP-` at AUTHORISATION (`PspTriggerService.prepareAuthorisation`) and distinct at REFUND. | PR #10 (`179a224`) + 1C-a (`feat/close-payment-loop`) | `web.PaymentLinkApiTest`, `web.AuthoriseTriggerSyncTest` |
+| PSP-006 | — (Part B / 1C-b: `core-api` tx-ordering) | — | — |
+| PSP-007 | — (Part B / 1C-b: `core-api` 502 mapping) | — | — |
+| PSP-008 | Deferral reaffirmed: outbound delivery is single-attempt, no retry/CB/DLQ. | 1C-a (`feat/close-payment-loop`) | `webhook.WebhookSenderNoRetryTest` |
+| PSP-009 | `psp_payment` DDL + entity. | `4fcf447` / `V1__psp_sim_schema.sql` | `web.PaymentLinkApiTest` |
+| PSP-010 | `psp_refund` DDL + entity. | `V1__psp_sim_schema.sql` | `web.RefundApiTest` |
+| PSP-011 | `psp_event_sequence` entity/repo; deterministic `idempotencyKey = pspRef:eventCode:seq`; redelivery reuses seq (find-or-create, no increment). | 1C-a (`feat/close-payment-loop`) | `service.IdempotencyKeyDeterminismTest` |
+| PSP-012 | `payments-sim` Flyway owns `payments-sim-db`; never points at `core-api` DB. | `4fcf447` (compose) | (compose; PSP-017 Part B) |
+| PSP-013 | AUTHORISATION trigger: flips PENDING→AUTHORISED, mints `pspReference`, sets `amountAuthorised`, emits WHK-006; double-call → 409. | 1C-a (`feat/close-payment-loop`) | `web.AuthoriseTriggerSyncTest` |
+| PSP-014 | `pay-web` deferred — no directory/service/symbol added. | 1C-a (`feat/close-payment-loop`) | (absence; n/a) |
+| PSP-015 | Sync seam `?sync=true` on all `/v1/test/...` triggers; `@Profile("test")` → 404 outside test profile. | 1C-a (`feat/close-payment-loop`) | `web.TestSeamProfileGatingTest`, `web.AuthoriseTriggerSyncTest` |
+| PSP-016 | Outbound webhook POST to `core-api` `/webhooks/psp` with `X-PSP-Signature` HMAC; non-2xx logged not retried. | 1C-a (`feat/close-payment-loop`) | `web.AuthoriseTriggerSyncTest` (signature), `webhook.WebhookSenderNoRetryTest` (no-retry) |
+| PSP-017 | — (Part B / 1C-b: compose verification — services already wired in 1A) | — | — |
 
 ---
 
