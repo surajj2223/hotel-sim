@@ -509,17 +509,36 @@ citation is one of the rows above.
 | Field | Value |
 |-------|-------|
 | Owner | Desk (arbiter) |
-| Status | `DRAFT` (authoritative in `WAVE0_00 §1b`). Next: `FROZEN` on arbiter sign-off; `IN-BUILD` when Feature 2 code starts. |
+| Status | `IN-BUILD` (authoritative in `WAVE0_00 §1b`; frozen at v0.4). Feature 2 Part A (1C-a) + Part B (1C-b) landed — outbound client, tx-ordering (PSP-006), fail-loud 502 (PSP-007), and the live four-service money-loop smoke (PSP-017) all proven; see §9a. PSP-001..017 DONE. |
 | Sign-off | ☐ pending. |
 | Consumers | `payments-sim` (Feature 2 builder), `core-api` payment orchestration (outbound wiring), integration owner (compose). |
 
 ### 9a. Verification log
 
-*(Empty until Feature 2 build. Per ID: what was built, commit/PR, the test that proves it.)*
+Per ID: what was built, commit/PR, the test that proves it. Filled incrementally as
+Feature 2 lands. Schema/request-side IDs (PSP-009/010 DDL, PSP-001..004 request side,
+PSP-005 store-side) shipped in earlier `payments-sim` PRs (#10 and prior); the rows below
+record where each ID is *proven* as of the current build.
 
 | ID | Built | Commit/PR | Proving test |
 |----|-------|-----------|--------------|
-| PSP-001..017 | — | — | — |
+| PSP-001 | Sim request side: create-link, mint `PL-`, persist PENDING. **Outbound (core-api):** `PspGateway.createLink` + orchestrator stamp. | PR #10 (`179a224`) + 1C-b (`feat/close-payment-loop`) | `web.PaymentLinkApiTest`; `payment.psp.PspOutboundIntegrationTest#PSP_001…stampsPspMintedPaymentLinkId` |
+| PSP-002 | Sim request side: capture intent persisted (`pendingCaptureAmount`); INV-005 guard. **Outbound (core-api):** `PspGateway.requestCapture` wired via `PaymentOrchestrator`. | PR #10 (`179a224`) + 1C-b (`feat/close-payment-loop`) | `web.CaptureApiTest`; `web.PaymentApiTest` (orchestrator→gateway, mocked); live in compose smoke |
+| PSP-003 | Sim request side: cancellation intent persisted; cancel-after-capture rejected. **Outbound (core-api):** `PspGateway.requestCancellation` via `PaymentOrchestrator`. | PR #10 (`179a224`) + 1C-b (`feat/close-payment-loop`) | `web.CancellationApiTest`; `web.PaymentApiTest`; live in compose smoke |
+| PSP-004 | Sim request side: refund row persisted, distinct refund `pspReference` minted, over-refund guard. **Outbound (core-api):** `PspGateway.requestRefund` via `PaymentOrchestrator` (PENDING refund persisted before the call). | PR #10 (`179a224`) + 1C-b (`feat/close-payment-loop`) | `web.RefundApiTest`; `web.PaymentApiTest`; live in compose smoke |
+| PSP-005 | Stores-never-mints (shopper/merchant echoed) + mints-on-event: `PL-` at link, `PSP-` at AUTHORISATION (`PspTriggerService.prepareAuthorisation`) and distinct at REFUND. | PR #10 (`179a224`) + 1C-a (`feat/close-payment-loop`) | `web.PaymentLinkApiTest`, `web.AuthoriseTriggerSyncTest` |
+| PSP-006 | Tx-ordering: `PaymentOrchestrator` (non-tx) sequences `PaymentService.createPaymentLink` (tx1, PENDING) → `PspGateway.createLink` (HTTP, no tx) → `stampPaymentLink` (tx2). Class-level `@Transactional` removed from `PaymentService`; per-method now. | 1C-b (`feat/close-payment-loop`) | `payment.PaymentOrchestratorTxOrderingTest` (stopped PSP → row stays PENDING, no tx held) |
+| PSP-007 | Outbound failure → `PspGatewayException` → `GlobalExceptionHandler` `502 ApiError("PSP_ERROR", …)` carrying the underlying reason; payment row left in pre-call state; no retry. | 1C-b (`feat/close-payment-loop`) | `payment.psp.PspOutboundIntegrationTest#PSP_007_pspRejects_returns502_andLeavesRowPending` |
+| PSP-008 | Deferral reaffirmed: outbound delivery is single-attempt, no retry/CB/DLQ. | 1C-a (`feat/close-payment-loop`) | `webhook.WebhookSenderNoRetryTest` |
+| PSP-009 | `psp_payment` DDL + entity. | `4fcf447` / `V1__psp_sim_schema.sql` | `web.PaymentLinkApiTest` |
+| PSP-010 | `psp_refund` DDL + entity. | `V1__psp_sim_schema.sql` | `web.RefundApiTest` |
+| PSP-011 | `psp_event_sequence` entity/repo; deterministic `idempotencyKey = pspRef:eventCode:seq`; redelivery reuses seq (find-or-create, no increment). | 1C-a (`feat/close-payment-loop`) | `service.IdempotencyKeyDeterminismTest` |
+| PSP-012 | `payments-sim` Flyway owns `payments-sim-db`; never points at `core-api` DB. Verified live: `psp_payment`/`psp_refund` rows exist only in `payments-sim-db`; ledger/payment rows only in `db`. | `4fcf447` (compose) + 1C-b | live compose (two-DB separation observed) |
+| PSP-013 | AUTHORISATION trigger: flips PENDING→AUTHORISED, mints `pspReference`, sets `amountAuthorised`, emits WHK-006; double-call → 409. | 1C-a (`feat/close-payment-loop`) | `web.AuthoriseTriggerSyncTest` |
+| PSP-014 | `pay-web` deferred — no directory/service/symbol added. | 1C-a (`feat/close-payment-loop`) | (absence; n/a) |
+| PSP-015 | Sync seam `?sync=true` on all `/v1/test/...` triggers; `@Profile("test")` → 404 outside test profile. | 1C-a (`feat/close-payment-loop`) | `web.TestSeamProfileGatingTest`, `web.AuthoriseTriggerSyncTest` |
+| PSP-016 | Outbound webhook POST to `core-api` `/webhooks/psp` with `X-PSP-Signature` HMAC; non-2xx logged not retried. | 1C-a (`feat/close-payment-loop`) | `web.AuthoriseTriggerSyncTest` (signature), `webhook.WebhookSenderNoRetryTest` (no-retry) |
+| PSP-017 | Four services up `(healthy)` via `docker compose up --build` (`db`, `payments-sim-db`, `core-api`, `payments-sim`); `docker compose config` validates; each app gates on its own DB `service_healthy`. **Live money-loop smoke** (`docker-compose.smoke.yml` test-profile override): createPaymentLink (PSP-001, real `PL-` minted) → `authorise?sync` (AUTHORISATION webhook) → capture (PSP-002, 202) → `capture?sync` (CAPTURE webhook) → `CAPTURED` + one per-line `REVENUE` posting; WHK-015 seam returns 404 in the prod compose. | 1C-b (`feat/close-payment-loop`) | live: `docker compose ps` all healthy + curl money-loop transcript (no sleeps) |
 
 ---
 
@@ -528,3 +547,4 @@ citation is one of the rows above.
 | Version | Date | Change |
 |---------|------|--------|
 | 0.1 | 2026-06-12 | Initial draft. Outbound PSP API (PSP-001..005), tx-ordering + fail-loud semantics (PSP-006..008), `payments-sim` internal schema (PSP-009..012), checkout-sim trigger replacing `pay-web` (PSP-013/014), WHK-015 concrete sync seam (PSP-015), webhook delivery (PSP-016), SCF-005 compose detail (PSP-017). Drafted against state amended by RX-001; no `WHK-`/`SCH-`/`ENM-` IDs redefined. DRAFT in Freeze Ledger; pending sign-off. |
+| — | 2026-06-13 | §9a verification log filled (not a contract change). 1C-a: PSP-011/013/015/016 (+PSP-005, PSP-008). 1C-b: PSP-001..004 outbound, PSP-006, PSP-007. Status line → IN-BUILD. No requirement text changed. |

@@ -4,16 +4,20 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hotelops.core.TestcontainersConfiguration;
 import com.hotelops.core.common.auth.HumanAuthorizationGate;
+import com.hotelops.core.payment.psp.PspGateway;
+import com.hotelops.core.payment.psp.dto.PspPaymentLinkResponse;
 import com.hotelops.core.product.ProductRoom;
 import com.hotelops.core.product.ProductService;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.DockerClientFactory;
@@ -21,6 +25,8 @@ import org.testcontainers.DockerClientFactory;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -51,6 +57,20 @@ class PaymentApiTest {
     @Autowired ObjectMapper json;
     @Autowired ProductService productService;
 
+    /**
+     * The outbound PSP call is not under test here — these are the operator-facing HTTP
+     * contracts. Stub PSP-001 to mint a unique {@code paymentLinkId} per call (the column is
+     * UNIQUE and these tests persist across methods); capture/cancel/refund are void and
+     * default to no-op. The real outbound seam is proven by {@code PspOutboundIntegrationTest}.
+     */
+    @MockitoBean PspGateway pspGateway;
+
+    @BeforeEach
+    void stubPsp() {
+        when(pspGateway.createLink(any())).thenAnswer(inv -> new PspPaymentLinkResponse(
+                "PL-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16), "PENDING"));
+    }
+
     private static final String HA = HumanAuthorizationGate.HEADER_NAME;
     private static final String HA_OK = "human-confirmed-yes";
     private static final String STARTS_AT = "2026-08-01T15:00:00Z";
@@ -76,8 +96,10 @@ class PaymentApiTest {
                 .andExpect(jsonPath("$.captureMode").value("MANUAL"))   // RoomStrategy default
                 .andExpect(jsonPath("$.merchantReference",
                         org.hamcrest.Matchers.startsWith("MR-")))
-                .andExpect(jsonPath("$.paymentLinkId").doesNotExist())   // null until Feature 2
-                .andExpect(jsonPath("$.pspReference").doesNotExist())
+                // Feature 2: PSP-001 mints the paymentLinkId, stamped after the outbound call.
+                .andExpect(jsonPath("$.paymentLinkId",
+                        org.hamcrest.Matchers.startsWith("PL-")))
+                .andExpect(jsonPath("$.pspReference").doesNotExist())    // not until AUTHORISATION webhook
                 .andExpect(jsonPath("$.refunds.length()").value(0))
                 .andReturn();
 

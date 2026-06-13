@@ -22,6 +22,12 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: false
 
+# PSP-001..004 / WAVE0_05 §7.2 — outbound payments-sim wiring. Compose overrides host/key
+# via PAYMENTS_SIM_BASE_URL / PSP_API_KEY env; localhost default keeps non-compose runs working.
+payments-sim:
+  base-url: ${PAYMENTS_SIM_BASE_URL:http://localhost:8081}
+  api-key: ${PSP_API_KEY:dev-psp-api-key}
+
 management:
   endpoints:
     web:

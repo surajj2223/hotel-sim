@@ -2,8 +2,8 @@ package com.hotelops.core.web;
 
 import com.hotelops.core.common.auth.HumanAuthorizationGate;
 import com.hotelops.core.payment.Payment;
+import com.hotelops.core.payment.PaymentOrchestrator;
 import com.hotelops.core.payment.PaymentRepository;
-import com.hotelops.core.payment.PaymentService;
 import com.hotelops.core.payment.Refund;
 import com.hotelops.core.payment.RefundRepository;
 import com.hotelops.core.web.dto.CaptureRequest;
@@ -37,18 +37,18 @@ import java.util.UUID;
 @RequestMapping("/payments")
 public class PaymentController {
 
-    private final PaymentService paymentService;
+    private final PaymentOrchestrator paymentOrchestrator;
     private final PaymentRepository paymentRepository;
     private final RefundRepository refundRepository;
     private final HumanAuthorizationGate humanAuth;
     private final DtoMapper mapper;
 
-    public PaymentController(PaymentService paymentService,
+    public PaymentController(PaymentOrchestrator paymentOrchestrator,
                              PaymentRepository paymentRepository,
                              RefundRepository refundRepository,
                              HumanAuthorizationGate humanAuth,
                              DtoMapper mapper) {
-        this.paymentService = paymentService;
+        this.paymentOrchestrator = paymentOrchestrator;
         this.paymentRepository = paymentRepository;
         this.refundRepository = refundRepository;
         this.humanAuth = humanAuth;
@@ -76,7 +76,7 @@ public class PaymentController {
             @RequestBody(required = false) CaptureRequest request) {
         humanAuth.assertAuthorised(humanAuthToken, "capturePayment");
         Long amount = (request != null) ? request.amount() : null;
-        Payment payment = paymentService.requestCapture(paymentId, amount);
+        Payment payment = paymentOrchestrator.requestCapture(paymentId, amount);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(toResponse(payment));
     }
 
@@ -90,7 +90,7 @@ public class PaymentController {
             @PathVariable UUID paymentId,
             @RequestHeader(value = HumanAuthorizationGate.HEADER_NAME, required = false) String humanAuthToken) {
         humanAuth.assertAuthorised(humanAuthToken, "cancelAuthorisation");
-        Payment payment = paymentService.requestCancellation(paymentId);
+        Payment payment = paymentOrchestrator.requestCancellation(paymentId);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(toResponse(payment));
     }
 
@@ -105,8 +105,7 @@ public class PaymentController {
             @RequestHeader(value = HumanAuthorizationGate.HEADER_NAME, required = false) String humanAuthToken,
             @Valid @RequestBody RefundRequest request) {
         humanAuth.assertAuthorised(humanAuthToken, "refundPayment");
-        Refund refund = paymentService.createRefund(paymentId, request.amount(),
-                PaymentService.mintMerchantReference(), request.reason());
+        Refund refund = paymentOrchestrator.requestRefund(paymentId, request.amount(), request.reason());
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(mapper.toRefundResponse(refund));
     }
 

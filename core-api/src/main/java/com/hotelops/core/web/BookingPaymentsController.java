@@ -2,8 +2,8 @@ package com.hotelops.core.web;
 
 import com.hotelops.core.common.auth.HumanAuthorizationGate;
 import com.hotelops.core.payment.Payment;
+import com.hotelops.core.payment.PaymentOrchestrator;
 import com.hotelops.core.payment.PaymentRepository;
-import com.hotelops.core.payment.PaymentService;
 import com.hotelops.core.payment.RefundRepository;
 import com.hotelops.core.web.dto.PaymentLinkCreateRequest;
 import com.hotelops.core.web.dto.PaymentResponse;
@@ -27,25 +27,26 @@ import java.util.UUID;
  *
  * The repercussive write here ({@code createPaymentLink}) is human-gated per INV-007 via
  * {@code X-Human-Auth}. {@code merchantReference} is server-minted (decision 2); the
- * caller never supplies it. {@code paymentLinkId} stays null until the PSP mints it
- * (Feature 2).
+ * caller never supplies it. {@code paymentLinkId} is minted by {@code payments-sim} on the
+ * outbound PSP-001 call (Feature 2) — {@link PaymentOrchestrator} persists the PENDING
+ * payment, calls the PSP outside any transaction (PSP-006), then stamps the link.
  */
 @RestController
 @RequestMapping("/bookings/{bookingId}/payments")
 public class BookingPaymentsController {
 
-    private final PaymentService paymentService;
+    private final PaymentOrchestrator paymentOrchestrator;
     private final PaymentRepository paymentRepository;
     private final RefundRepository refundRepository;
     private final HumanAuthorizationGate humanAuth;
     private final DtoMapper mapper;
 
-    public BookingPaymentsController(PaymentService paymentService,
+    public BookingPaymentsController(PaymentOrchestrator paymentOrchestrator,
                                      PaymentRepository paymentRepository,
                                      RefundRepository refundRepository,
                                      HumanAuthorizationGate humanAuth,
                                      DtoMapper mapper) {
-        this.paymentService = paymentService;
+        this.paymentOrchestrator = paymentOrchestrator;
         this.paymentRepository = paymentRepository;
         this.refundRepository = refundRepository;
         this.humanAuth = humanAuth;
@@ -59,7 +60,7 @@ public class BookingPaymentsController {
             @RequestHeader(value = HumanAuthorizationGate.HEADER_NAME, required = false) String humanAuthToken,
             @Valid @RequestBody PaymentLinkCreateRequest request) {
         humanAuth.assertAuthorised(humanAuthToken, "createPaymentLink");
-        Payment payment = paymentService.createPaymentLink(
+        Payment payment = paymentOrchestrator.createPaymentLink(
                 bookingId, request.amount(), request.currency(), request.captureMode());
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(payment));
     }

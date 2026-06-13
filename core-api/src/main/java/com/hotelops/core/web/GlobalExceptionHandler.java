@@ -3,6 +3,7 @@ package com.hotelops.core.web;
 import com.hotelops.core.common.error.HumanAuthRequiredException;
 import com.hotelops.core.common.error.InvalidPspSignatureException;
 import com.hotelops.core.common.error.StateChangedException;
+import com.hotelops.core.payment.psp.PspGatewayException;
 import com.hotelops.core.web.dto.ApiError;
 import com.hotelops.core.web.dto.StateConflict;
 import jakarta.persistence.EntityNotFoundException;
@@ -66,6 +67,19 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> invalidSignature(InvalidPspSignatureException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(new ApiError("INVALID_SIGNATURE", ex.getMessage()));
+    }
+
+    /**
+     * 502 — PSP-007: an outbound {@code core-api → payments-sim} call failed (unreachable,
+     * timeout, non-2xx, or malformed response). The payment row is left in its pre-call
+     * state and nothing is retried; the operator re-issues the action (a fresh
+     * {@code merchantReference}). The message carries the underlying {@code payments-sim}
+     * reason verbatim where available.
+     */
+    @ExceptionHandler(PspGatewayException.class)
+    public ResponseEntity<ApiError> pspGateway(PspGatewayException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(new ApiError("PSP_ERROR", ex.getMessage()));
     }
 
     /** 400 — @Valid request body failed bean validation. */
