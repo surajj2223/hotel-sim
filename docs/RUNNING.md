@@ -3,9 +3,19 @@
 A practical guide to running the project on your machine. This reflects what the
 repo **actually contains today**, not the end-state described in the README.
 
-> **What exists right now:** `core-api` (Spring Boot) + `db` (Postgres 16).
-> `payments-sim`, `pay-web`, and `ops-web` are deferred — they aren't in the tree
-> yet, and `docker-compose.yml` only defines the two services above.
+> **What exists right now:** two Spring Boot services — `core-api` (:8080) and
+> `payments-sim` (:8081) — each with its own Postgres 16 (`db` on :5432,
+> `payments-sim-db` on :5433). `docker-compose.yml` defines all four.
+> `ops-web` and the MCP server are not in the tree yet.
+>
+> **Honest caveat about the money loop:** `payments-sim` is fully built (it mints
+> references, persists state, and can fire signed webhooks), but the *outbound*
+> `core-api → payments-sim` seam is not wired into the live request path yet
+> (Feature 2 Part 2). So today you can run each service and drive the booking
+> lifecycle on `core-api`; the end-to-end authorise→capture→ledger loop is exercised
+> by the **smoke harness** (see [The money loop](#the-money-loop-smoke-harness)), not
+> by clicking through the API. This guide focuses on the `core-api` inner loop, which
+> is where day-to-day work happens.
 
 ---
 
@@ -24,39 +34,51 @@ don't install Gradle yourself; the wrapper handles it.
 
 ## Key facts that explain everything else
 
-- **Flyway owns the schema** (`ddl-auto: none`). The app **cannot boot without a
-  reachable Postgres** — there's no embedded fallback. Always start the DB first.
-- **The migration is schema-only — there is no seed data.** A fresh database has
-  no products, so `/availability` returns an empty list and you can't add a booking
-  line until you insert a room. See [Seeding a room](#seeding-a-room-needed-to-test-products).
-- **DB credentials** (same everywhere): database `hotelops`, user `hotelops`,
-  password `hotelops`, on port `5432`.
-- **The app's default datasource** (`application.yml`) is
-  `jdbc:postgresql://localhost:5432/hotelops`. Compose overrides the host to `db`
-  via environment variables, so the same build runs both in Docker and on your host
-  with no code change.
+- **Flyway owns the schema** (`ddl-auto: none`) in **both** services. Neither app
+  can boot without its Postgres reachable — there's no embedded fallback. Always
+  start the DB(s) first.
+- **Migrations are schema-only — there is no seed data.** A fresh `core-api` database
+  has no products, so `/availability` returns an empty list and you can't add a
+  booking line until you insert a room. See [Seeding a room](#seeding-a-room-needed-to-test-products).
+  `payments-sim` needs no seed — it mints its own rows as payments happen.
+- **Two databases, two credential sets** (kept deliberately separate per RX-001 —
+  the PSP owns its own state):
+
+  | Service DB | Database | User | Password | Host port |
+  |---|---|---|---|---|
+  | `db` (core-api) | `hotelops` | `hotelops` | `hotelops` | `5432` |
+  | `payments-sim-db` | `pspsim` | `pspsim` | `pspsim` | `5433` |
+
+- **Default datasources** (each service's `application.yml`): core-api →
+  `jdbc:postgresql://localhost:5432/hotelops`; payments-sim →
+  `jdbc:postgresql://localhost:5433/pspsim`. Compose overrides the host (to the
+  service name) and the PSP wiring via environment variables, so the same build runs
+  both in Docker and on your host with no code change.
 
 ---
 
-## Three ways to run
+## Ways to run
 
 Pick the one that matches what you're doing. Most day-to-day work is **Option B**.
+(Running `payments-sim` on the host is an optional add-on, covered after Option C.)
 
 ### Option A — All in Docker (clean-room / smoke check)
 
-Builds `core-api` into an image and runs both services. Needs **only Docker** — no
-JDK on your host. Slowest first run (Gradle resolves dependencies inside the image).
+Builds both Spring Boot images and runs the full stack — `db`, `payments-sim-db`,
+`core-api`, `payments-sim`. Needs **only Docker** — no JDK on your host. Slowest first
+run (Gradle resolves dependencies inside each image).
 
 ```bash
-docker compose up --build -d      # build + start db + core-api
-docker compose ps                 # wait until both are "healthy"
-curl http://localhost:8080/actuator/health   # -> {"status":"UP"}
-docker compose logs -f core-api   # tail logs
-docker compose down               # stop (keeps the database volume)
+docker compose up --build -d      # build + start all four services
+docker compose ps                 # wait until all show "healthy"
+curl http://localhost:8080/actuator/health   # core-api     -> {"status":"UP"}
+curl http://localhost:8081/actuator/health   # payments-sim -> {"status":"UP"}
+docker compose logs -f core-api   # tail logs (or: payments-sim)
+docker compose down               # stop (keeps the database volumes)
 ```
 
 Use this to verify the project runs from a clean checkout. Don't run it at the same
-time as Option B — both bind host port `8080`.
+time as Option B/C — they bind the same host ports (`8080`, `5432`).
 
 ### Option B — DB in Docker, app in IntelliJ (recommended)
 
@@ -78,20 +100,11 @@ Fast inner loop: edit Java, rerun from the IDE, debugger attached.
 5. **Run:** open `CoreApiApplication.java`, click the green ▶ in the gutter → Run.
    It boots on `localhost:8080`, Flyway migrates, health goes UP.
 
-> **Publishing the DB port is required for this option.** Container-internal Postgres
-> isn't reachable from a host-run app. The `db` service in `docker-compose.yml` must
-> publish the port:
-> ```yaml
-> db:
->   ports:
->     - "5432:5432"
-> ```
-> After this, `docker compose ps` shows `0.0.0.0:5432->5432/tcp`. Without the mapping
-> you get `Connection to localhost:5432 refused` at startup.
->
-> Tip: if you'd rather keep `docker-compose.yml` pristine as a frozen Wave 0 artifact,
-> put the `db` `ports:` block in a `docker-compose.override.yml` instead — compose
-> merges it automatically and it stays a local-only concern.
+> **The DB ports are already published** in `docker-compose.yml` (`db` → `5432:5432`,
+> `payments-sim-db` → `5433:5432`), so a host-run app reaches them out of the box —
+> `docker compose ps` shows `0.0.0.0:5432->5432/tcp`. (If you ever see
+> `Connection to localhost:5432 refused` at startup, the database simply isn't up yet;
+> run `docker compose up -d db` and wait for `healthy`.)
 
 ### Option C — DB in Docker, app via Gradle wrapper (no IDE)
 
@@ -102,6 +115,29 @@ docker compose up -d db
 cd core-api
 ./gradlew bootRun
 ```
+
+### Running `payments-sim` on the host (optional)
+
+Most core-api work doesn't need a host-run PSP. If you do want it (e.g. to watch it
+mint references), start its database and run it the same way:
+
+```bash
+docker compose up -d payments-sim-db
+cd payments-sim
+./gradlew bootRun        # boots on :8081, Flyway migrates pspsim, health goes UP
+```
+
+> Its `application.yml` defaults the webhook callback and hosted-base URLs to the
+> **compose** hostnames (`http://core-api:8080/...`, `http://payments-sim:8081`),
+> which don't resolve on your host. To have a host-run `payments-sim` call back to a
+> host-run `core-api`, override them:
+> ```bash
+> CORE_API_WEBHOOK_URL=http://localhost:8080/webhooks/psp \
+> PSP_SIM_HOSTED_BASE_URL=http://localhost:8081 \
+> ./gradlew bootRun
+> ```
+> The shared `PSP_WEBHOOK_SECRET` must match on both sides for signature
+> verification to pass (compose sets both to `poc-psp-secret`).
 
 ---
 
@@ -127,9 +163,13 @@ overbook against.
 
 ---
 
-## Testing the endpoints (Stage 1)
+## Testing the endpoints
 
-Seven endpoints are live. All paths are relative to `http://localhost:8080`.
+`core-api` exposes the booking-lifecycle endpoints below plus a set of payment/webhook
+endpoints (listed after the happy path). All paths are relative to
+`http://localhost:8080`.
+
+### Booking lifecycle (no money)
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
@@ -181,22 +221,65 @@ The interesting design lives in the edge cases, not the happy path:
   lines whose quantity exceeds 5 in one window; the over-the-limit write fails loudly
   with a 409 rather than overbooking. This is the write-time revalidation (INV-003),
   the core safety mechanism.
-- **400 on non-ROOM availability** — `?vertical=SPA` returns 400. Stage 1 supports
-  ROOM only — this is intentional, not a bug, and shows the `ApiError` envelope shape.
+- **400 on non-ROOM availability** — `?vertical=SPA` returns 400. Only ROOM is wired
+  end-to-end — this is intentional, not a bug, and shows the `ApiError` envelope shape.
+
+### Payment / webhook endpoints
+
+These are live on `core-api`, but note the caveat in the banner at the top: the
+*outbound* call from `core-api` to `payments-sim` isn't wired into the live path yet,
+so creating a link / capturing / refunding won't drive a real PSP round-trip from a
+plain curl today. The endpoints, their shapes, and the inbound webhook handler all
+exist and are unit/integration-tested; the end-to-end loop runs via the smoke harness
+below.
+
+| Endpoint | Method | Purpose | Notes |
+|----------|--------|---------|-------|
+| `/bookings/{id}/payments` | POST | Create a payment link for a booking | Repercussive — requires `X-Human-Auth` header |
+| `/bookings/{id}/payments` | GET | List a booking's payments | |
+| `/payments/{id}` | GET | Read one payment | |
+| `/payments/{id}/capture` | POST | Capture (full/partial) | Async — returns `202`; `X-Human-Auth` |
+| `/payments/{id}/cancel` | POST | Cancel an uncaptured authorisation | Async — returns `202`; `X-Human-Auth` |
+| `/payments/{id}/refunds` | POST | Refund (full/partial) | Async — returns `202`; `X-Human-Auth` |
+| `/webhooks/psp` | POST | Inbound PSP events (authoritative state signal) | `X-PSP-Signature` (HMAC), not human-gated |
+
+Two auth behaviours worth seeing on purpose:
+
+- **428 without `X-Human-Auth`** — a repercussive write (e.g. capture) with no
+  `X-Human-Auth` header is rejected with `428 Precondition Required`. The header is
+  presence-only in the POC (any value passes), but its *absence* is the server-side
+  commit gate firing.
+- **401 on a bad webhook signature** — posting to `/webhooks/psp` without a valid
+  `X-PSP-Signature` returns `401`. The signature is an HMAC over the body using the
+  shared `PSP_WEBHOOK_SECRET`.
+
+### The money loop (smoke harness)
+
+The full authorise → capture → ledger-posting loop across both services is driven by
+the smoke override, which activates `payments-sim`'s `test` profile so its synchronous
+test-trigger router is reachable (it's deliberately **404 in the normal stack**):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.smoke.yml up -d
+```
+
+This is the integration owner's deterministic harness — it lets the end-to-end money
+loop run without sleeps. It is not how the system behaves in a normal run, and the
+test seam is unreachable outside this override by design.
 
 ---
 
 ## Running the tests
 
-The suite uses Testcontainers, which starts its **own throwaway Postgres** — it does
-not use your dev database. Needs JDK 21 + a running Docker daemon.
+Both services have suites that use Testcontainers, which starts its **own throwaway
+Postgres** — they don't touch your dev databases. Needs JDK 21 + a running Docker daemon.
 
 ```bash
-cd core-api
-./gradlew test     # report: build/reports/tests/test/index.html
+cd core-api      && ./gradlew test     # report: build/reports/tests/test/index.html
+cd payments-sim  && ./gradlew test     # the PSP's own suite
 ```
 
-Or run any test class from the IntelliJ gutter. Don't point these at your dev DB.
+Or run any test class from the IntelliJ gutter. Don't point these at your dev DBs.
 
 ---
 
@@ -204,11 +287,13 @@ Or run any test class from the IntelliJ gutter. Don't point these at your dev DB
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `Connection to localhost:5432 refused` on startup | DB not running, or port not published | `docker compose up -d db`; ensure the `db` `ports: "5432:5432"` mapping exists (`docker compose ps` shows `0.0.0.0:5432->`) |
-| `docker compose ps` shows `5432/tcp` (no `0.0.0.0:`) | Port exposed internally but not published to host | Add the `ports` mapping to `db` (see Option B) |
-| Port `8080` already allocated | Both Option A and an IDE run are up | Run only one at a time — `docker compose down`, or stop the IDE app |
-| Port `5432` already allocated | A second Postgres (host-installed or another container) owns it | One Postgres on 5432 at a time; `lsof -iTCP:5432 -sTCP:LISTEN` finds the culprit |
+| `Connection to localhost:5432 refused` on startup | core-api's DB isn't up yet | `docker compose up -d db`; wait for `healthy` (the `5432:5432` mapping already exists) |
+| `Connection to localhost:5433 refused` (payments-sim) | the PSP's DB isn't up yet | `docker compose up -d payments-sim-db`; wait for `healthy` |
+| Port `8080` / `8081` already allocated | A Docker run and a host run are both up | Run only one at a time — `docker compose down`, or stop the IDE/Gradle app |
+| Port `5432` / `5433` already allocated | A second Postgres (host-installed or another container) owns it | One Postgres per port; `lsof -iTCP:5432 -sTCP:LISTEN` finds the culprit |
 | `/availability` returns `[]` | No products seeded | Run the [seed step](#seeding-a-room-needed-to-test-products) |
+| `428 Precondition Required` on a payment write | Missing `X-Human-Auth` header | Add the header (any value) — it's the commit gate, presence-only in the POC |
+| `401` posting to `/webhooks/psp` | Missing/invalid `X-PSP-Signature`, or mismatched secret | Sign with the shared `PSP_WEBHOOK_SECRET` (compose uses `poc-psp-secret`) |
 | Entity getters/setters won't resolve in IDE | Lombok annotation processing off | Enable annotation processing + Lombok plugin (Option B, step 4) |
 | Compile errors about Java version | Project SDK isn't 21 | Set Project SDK to 21 (Option B, step 3) |
 
@@ -217,11 +302,13 @@ Or run any test class from the IntelliJ gutter. Don't point these at your dev DB
 ## Quick reference
 
 ```bash
-docker compose up -d db            # start just the database (for IDE / gradle runs)
-docker compose up --build -d       # full stack in Docker
-docker compose ps                  # status — look for "healthy" and 0.0.0.0:5432->
-docker compose logs -f core-api    # tail app logs (Docker run)
-docker compose down                # stop, keep data
-docker compose down -v             # stop, WIPE the database volume (re-seed after)
-curl localhost:8080/actuator/health
+docker compose up -d db payments-sim-db   # start just the databases (for IDE / gradle runs)
+docker compose up --build -d              # full stack in Docker (all four services)
+docker compose ps                         # status — look for "healthy" and 0.0.0.0:5432->, :5433->
+docker compose logs -f core-api           # tail app logs (or: payments-sim)
+docker compose down                       # stop, keep data
+docker compose down -v                    # stop, WIPE both database volumes (re-seed the room after)
+docker compose -f docker-compose.yml -f docker-compose.smoke.yml up -d   # money-loop smoke harness
+curl localhost:8080/actuator/health       # core-api
+curl localhost:8081/actuator/health       # payments-sim
 ```
