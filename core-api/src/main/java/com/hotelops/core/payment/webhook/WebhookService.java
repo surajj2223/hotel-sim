@@ -50,7 +50,16 @@ public class WebhookService {
      */
     @Transactional
     public WebhookAck process(PspWebhookEvent event) {
-        // Step 1: insert-first inbox row; duplicate key → already-processed, ack no-effect.
+        // Step 1 (WHK-005): dedupe. Fast-path an already-processed key as a duplicate ack
+        // WITHOUT attempting the insert — a flush-time UNIQUE violation would mark this
+        // transaction rollback-only, so even though the exception is caught the commit would
+        // then fail with UnexpectedRollbackException (the GAP-2 self-poisoning trap's cousin,
+        // surfacing as a spurious 500 instead of the contract's 200 duplicate-ack). The
+        // insert below remains the authoritative first-delivery claim ("insert-first",
+        // WAVE0_03 §6.1) and a backstop for a concurrent double-delivery race.
+        if (inboxRepository.findByIdempotencyKey(event.idempotencyKey()).isPresent()) {
+            return new WebhookAck(true, true);
+        }
         WebhookInbox inbox;
         try {
             inbox = persistInbox(event);

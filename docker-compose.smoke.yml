@@ -1,0 +1,16 @@
+# Smoke / integration override — NOT the production compose.
+#
+# Activates payments-sim's `test` profile so its test-only trigger router (/v1/test/...)
+# and the WHK-015 ?sync=true seam are reachable, letting the end-to-end money-loop smoke
+# drive AUTHORISATION/CAPTURE synchronously with no sleeps (WAVE0_05 §7.3).
+#
+# The base docker-compose.yml deliberately leaves SPRING_PROFILES_ACTIVE unset, so in the
+# production compose the seam returns 404 (WHK-015 / PSP-015 "unreachable in the running
+# system"). This override is the integration owner's deterministic smoke harness only.
+#
+# Run with:
+#   docker compose -f docker-compose.yml -f docker-compose.smoke.yml up -d
+services:
+  payments-sim:
+    environment:
+      SPRING_PROFILES_ACTIVE: test

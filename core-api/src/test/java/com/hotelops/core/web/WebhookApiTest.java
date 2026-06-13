@@ -7,17 +7,21 @@ import com.hotelops.core.common.auth.HumanAuthorizationGate;
 import com.hotelops.core.ledger.LedgerPosting;
 import com.hotelops.core.ledger.LedgerPostingRepository;
 import com.hotelops.core.ledger.OutboxProcessor;
+import com.hotelops.core.payment.psp.PspGateway;
+import com.hotelops.core.payment.psp.dto.PspPaymentLinkResponse;
 import com.hotelops.core.payment.webhook.WebhookInbox;
 import com.hotelops.core.payment.webhook.WebhookInboxRepository;
 import com.hotelops.core.product.ProductService;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.DockerClientFactory;
@@ -26,6 +30,8 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -59,6 +65,20 @@ class WebhookApiTest {
     @Autowired WebhookInboxRepository inboxRepository;
     @Autowired LedgerPostingRepository ledgerRepository;
     @Autowired OutboxProcessor outboxProcessor;
+
+    /**
+     * This suite drives inbound webhooks directly; the outbound PSP call made when a
+     * payment/refund is created is stubbed so the operator endpoints succeed without a live
+     * payments-sim. createLink mints a unique paymentLinkId per call (UNIQUE column);
+     * capture/cancel/refund are void no-ops.
+     */
+    @MockitoBean PspGateway pspGateway;
+
+    @BeforeEach
+    void stubPsp() {
+        when(pspGateway.createLink(any())).thenAnswer(inv -> new PspPaymentLinkResponse(
+                "PL-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16), "PENDING"));
+    }
 
     private static final String HA = HumanAuthorizationGate.HEADER_NAME;
     private static final String HA_OK = "human-confirmed-yes";
@@ -201,8 +221,6 @@ class WebhookApiTest {
         Setup setup = newPaymentReadyForAuth(18000L);
         deliverAuth(setup.mref, 18000L);
 
-        long postingsBefore = ledgerRepository.count();
-
         String pspRef = newPspRef();
         deliver("CANCELLATION", pspRef + ":CANCELLATION:1", setup.mref, pspRef, 0L, "")
                 .andExpect(status().isOk());
@@ -210,8 +228,13 @@ class WebhookApiTest {
         mvc.perform(get("/payments/" + setup.paymentId))
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
 
+        // INV-006: cancellation posts nothing. Scope to THIS payment's postings — a global
+        // count is contaminated by other suites' undrained outbox in a shared-DB run.
         outboxProcessor.processPending();
-        assertThat(ledgerRepository.count()).isEqualTo(postingsBefore);
+        List<LedgerPosting> postings = ledgerRepository.findAll().stream()
+                .filter(p -> setup.mref.equals(p.getMerchantReference()))
+                .toList();
+        assertThat(postings).isEmpty();
     }
 
     // ── WHK-009 REFUND ───────────────────────────────────────────────────────

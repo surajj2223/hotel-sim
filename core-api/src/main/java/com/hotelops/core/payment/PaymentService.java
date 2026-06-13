@@ -36,9 +36,17 @@ import java.util.UUID;
  *   request* (called by the 202 controller — validates only) and
  *   settle*  (called by the inbound webhook — flips state + enqueues outbox).
  * Refund was already split (createRefund / settleRefund); capture and cancel now match.
+ *
+ * PSP-006 — transaction boundaries are <b>per-method</b>, never class-level. The outbound
+ * PSP HTTP call (in {@link com.hotelops.core.payment.psp.PspGateway}) must sit OUTSIDE any
+ * open transaction; {@link PaymentOrchestrator} sequences {@code persist (tx1) → commit →
+ * HTTP → stamp (tx2)} by invoking the proxied public methods on this bean from a separate,
+ * non-transactional bean. A class-level {@code @Transactional} would re-wrap the whole
+ * orchestration in one transaction and pin a Hikari connection across the network call —
+ * the GAP-2 trap in a new guise (WAVE0_05 §3.1). {@code REQUIRES_NEW} is explicitly not a
+ * fix (§3.1.2): tx1 stays logically open on the thread.
  */
 @Service
-@Transactional
 public class PaymentService {
 
     /** Prefix matching the PSP envelope examples in WAVE0_03 §3. */
@@ -80,6 +88,7 @@ public class PaymentService {
      * and creates a {@code PENDING} payment. {@code paymentLinkId} stays {@code null}
      * until the PSP mints it (Feature 2).
      */
+    @Transactional
     public Payment createPaymentLink(UUID bookingId, long amount, String currency,
                                      CaptureMode captureModeOverride) {
         Booking booking = bookingRepository.findById(bookingId)
@@ -115,6 +124,7 @@ public class PaymentService {
      * {@code merchantReference} via {@link #mintMerchantReference()} — it is
      * never accepted from the HTTP request body (SCH-031, API-008).
      */
+    @Transactional
     public Payment createPayment(UUID bookingId, String shopperReference,
                                  String merchantReference, CaptureMode captureMode,
                                  long amountRequested, String currency) {
@@ -127,6 +137,22 @@ public class PaymentService {
         p.setCaptureMode(captureMode);
         p.setAmountRequested(amountRequested);
         p.setCurrency(currency != null ? currency : "GBP");
+        return paymentRepository.save(p);
+    }
+
+    /**
+     * PSP-006 tx2: stamp the PSP-minted {@code paymentLinkId} on the already-committed
+     * {@code PENDING} payment, AFTER the outbound PSP-001 call has returned. A separate
+     * public {@code @Transactional} method (invoked by {@link PaymentOrchestrator}, a
+     * different bean) so the proxy applies and the HTTP call sits between tx1 and tx2 with
+     * no open transaction. The {@code pspReference} / {@code amountAuthorised} are stamped
+     * later still, on the AUTHORISATION webhook (WHK-006).
+     */
+    @Transactional
+    public Payment stampPaymentLink(UUID paymentId, String paymentLinkId) {
+        Payment p = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
+        p.setPaymentLinkId(paymentLinkId);
         return paymentRepository.save(p);
     }
 
@@ -144,6 +170,7 @@ public class PaymentService {
      *
      * @return the payment unmodified, so the 202 body reflects current truth.
      */
+    @Transactional(readOnly = true)
     public Payment requestCapture(UUID paymentId, Long captureAmount) {
         Payment p = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
@@ -162,6 +189,7 @@ public class PaymentService {
      * (one that escaped inbox dedupe) cannot double-post. The V2 unique index
      * {@code uq_posting_capture_line} is the final backstop.
      */
+    @Transactional
     public Payment settleCapture(String merchantReference, long capturedAmount, String pspReference) {
         Payment p = paymentRepository.findByMerchantReference(merchantReference)
                 .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + merchantReference));
@@ -192,6 +220,7 @@ public class PaymentService {
     }
 
     /** WHK-010: mark payment CAPTURE_FAILED. No ledger effect. */
+    @Transactional
     public Payment settleCaptureFailure(String merchantReference, String reason) {
         Payment p = paymentRepository.findByMerchantReference(merchantReference)
                 .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + merchantReference));
@@ -204,6 +233,7 @@ public class PaymentService {
     // -------------------------------------------------------------------------
 
     /** API-011 request side: validate that cancellation is permissible. State change happens on the webhook. */
+    @Transactional(readOnly = true)
     public Payment requestCancellation(UUID paymentId) {
         Payment p = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
@@ -219,6 +249,7 @@ public class PaymentService {
      * WHK-008 settlement: webhook CANCELLATION of an uncaptured auth. No outbox, no posting.
      * Re-checks amountCaptured == 0 defensively (a CAPTURE could have raced in before).
      */
+    @Transactional
     public Payment settleCancellation(String merchantReference) {
         Payment p = paymentRepository.findByMerchantReference(merchantReference)
                 .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + merchantReference));
@@ -232,6 +263,7 @@ public class PaymentService {
     }
 
     /** WHK-011: AUTH_EXPIRY — only flips state if currently AUTHORISED; ignored when CAPTURED. */
+    @Transactional
     public Payment settleAuthExpiry(String merchantReference) {
         Payment p = paymentRepository.findByMerchantReference(merchantReference)
                 .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + merchantReference));
@@ -250,6 +282,7 @@ public class PaymentService {
      * WHK-006: AUTHORISATION webhook → stamp pspReference / amountAuthorised /
      * authExpiresAt; status PENDING → AUTHORISED. No posting (INV-006).
      */
+    @Transactional
     public Payment recordAuthorisation(String merchantReference, String pspReference,
                                        long amountAuthorised,
                                        OffsetDateTime authExpiresAt) {
@@ -270,6 +303,7 @@ public class PaymentService {
      * API-012 request side: validate refund and persist PENDING refund row.
      * Settlement (state flip + outbox + roll-ups) is {@link #settleRefund} (WHK-009).
      */
+    @Transactional
     public Refund createRefund(UUID paymentId, long refundAmount,
                                String merchantReference, String reason) {
         Payment p = paymentRepository.findById(paymentId)
@@ -293,6 +327,7 @@ public class PaymentService {
      * WHK-009 settlement side (called when REFUND webhook arrives).
      * Enqueues REFUND_SETTLED outbox event → per-line REFUND_REVERSAL postings.
      */
+    @Transactional
     public Refund settleRefund(String refundMerchantReference, String pspReference) {
         Refund r = refundRepository.findByMerchantReference(refundMerchantReference)
                 .orElseThrow(() -> new EntityNotFoundException("Refund not found: " + refundMerchantReference));
@@ -324,6 +359,7 @@ public class PaymentService {
     }
 
     /** WHK-010: mark refund REFUND_FAILED. Parent payment status untouched. */
+    @Transactional
     public Refund settleRefundFailure(String refundMerchantReference, String reason) {
         Refund r = refundRepository.findByMerchantReference(refundMerchantReference)
                 .orElseThrow(() -> new EntityNotFoundException("Refund not found: " + refundMerchantReference));
