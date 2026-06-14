@@ -702,6 +702,7 @@ components:
       - totalAmount
       - amountPaid
       - amountRefunded
+      - amountAuthorised
       - balance
       - lines
       properties:
@@ -732,6 +733,13 @@ components:
           format: int64
           readOnly: true
           description: INV-004.
+        amountAuthorised:
+          type: integer
+          format: int64
+          readOnly: true
+          description: 'D3 (Stage 4): live "secured" roll-up = sum of payment.amountAuthorised
+            for the booking. Visible only, no enforcement. Minor units. Additive read field,
+            backward-compatible.'
         balance:
           type: integer
           format: int64

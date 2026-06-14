@@ -363,7 +363,14 @@ public class PaymentService {
         p.setAmountAuthorised(amountAuthorised);
         p.setAuthExpiresAt(authExpiresAt);
         p.setStatus(PaymentStatus.AUTHORISED);
-        return paymentRepository.save(p);
+        paymentRepository.save(p);
+
+        // D3 (Stage 4): refresh the live folio authorised roll-up so "secured" reflects this
+        // auth. INV-006 still holds — AUTHORISATION posts nothing to the ledger.
+        bookingService.recalculateTotals(p.getBooking());
+        bookingRepository.save(p.getBooking());
+
+        return p;
     }
 
     // -------------------------------------------------------------------------
