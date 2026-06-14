@@ -50,6 +50,22 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	// CI-1: make silent Testcontainers skips loud. The Docker-presence guard in the test
+	// bases aborts integration tests (→ counted as skipped) when no container runtime is
+	// found. Locally that is a convenience; on CI a skipped integration test means it never
+	// ran against a real Postgres, so "green" would be a lie. There are no @Disabled tests
+	// in this module, so any skip == the Docker guard tripped. Fail the build when running
+	// on CI (GitHub Actions sets CI=true) if anything was skipped. Local runs are unaffected.
+	if (System.getenv('CI')) {
+		afterSuite { desc, result ->
+			if (desc.parent == null && result.skippedTestCount > 0) {
+				throw new GradleException(
+						"CI skip-guard: ${result.skippedTestCount} test(s) were skipped. On CI the " +
+						"Testcontainers Postgres tests must run, not skip (Docker is expected to be " +
+						"present). A skip here means the Docker-presence guard aborted them.")
+			}
+		}
+	}
 	// Forward Docker env to the test JVM (Gradle daemons don't inherit shell env on
 	// macOS). On hosts where DOCKER_HOST is not exported (e.g. Docker Desktop default),
 	// Testcontainers falls back to ~/.testcontainers.properties.

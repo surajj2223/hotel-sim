@@ -1,0 +1,45 @@
+name: CI
+
+# CI-1: per-service test suites against a real Postgres (via Testcontainers).
+# There is no root Gradle aggregator — core-api and payments-sim are two independent
+# builds, so each runs in its own job (matrix) from its own directory.
+# The cross-service compose smoke test is CI-2 (a follow-up), not here.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: test (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [core-api, payments-sim]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      # ubuntu-latest runners always ship Docker, so Testcontainers starts its own
+      # Postgres — no `services:` container is declared (that would conflict with the
+      # image/params the tests pin). The build.gradle skip-guard (CI=true) FAILS the
+      # build if the Docker-backed tests ever silently skip instead of running.
+      - name: Run ${{ matrix.module }} test suite
+        working-directory: ${{ matrix.module }}
+        run: ./gradlew --no-daemon test
+
+      - name: Upload test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-${{ matrix.module }}
+          path: ${{ matrix.module }}/build/reports/tests/test
+          if-no-files-found: ignore
