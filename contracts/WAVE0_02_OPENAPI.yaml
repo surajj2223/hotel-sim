@@ -692,6 +692,15 @@ components:
           type: string
           minLength: 3
           maxLength: 3
+        revenuePosted:
+          # DRAFT AMENDMENT (Slice S2) pending Desk sign-off — additive, read-only, derived.
+          # Net revenue posted to the ledger for this line (sum of REVENUE minus REFUND_REVERSAL,
+          # minor units). Makes WHK-016 scoped allocation HTTP-visible. Computed at assembly
+          # from ledger_posting; no schema change. See WAVE0_00 §1b (API-008 lineCoverage row).
+          type: integer
+          format: int64
+          description: 'Derived, read-only: net revenue posted for this line (REVENUE less
+            REFUND_REVERSAL, minor units). 0 until a covering payment is captured.'
     FolioResponse:
       type: object
       required:
@@ -809,6 +818,28 @@ components:
             (Rooms MANUAL, F&B IMMEDIATE). merchantReference is server-minted (not accepted).
 
             '
+        lineCoverage:
+          # DRAFT AMENDMENT (Slice S2) pending Desk sign-off — additive, backward-compatible.
+          # Exposes WHK-016 scoped payment->line allocation over HTTP. Optional; when absent
+          # the payment is folio-wide and the WHK-012 fill-by-line-order fallback applies
+          # unchanged. When present, amounts MUST sum to `amount` (else 400). Core-side only —
+          # never forwarded to payments-sim. See WAVE0_00 §1b (API-008 lineCoverage row).
+          type: array
+          description: 'Optional WHK-016 scoped coverage: each entry settles one booking line for
+            a given amount. Omitted/empty -> folio-wide (WHK-012). Amounts must sum to `amount`.'
+          items:
+            type: object
+            required:
+            - bookingLineId
+            - amount
+            properties:
+              bookingLineId:
+                type: string
+                format: uuid
+              amount:
+                type: integer
+                format: int64
+                description: Minor units; portion of this payment allocated to the line.
     PaymentResponse:
       type: object
       required:
@@ -1085,10 +1116,19 @@ x-requirements-stage2:
       from vertical strategy when omitted; X-Human-Auth required else 428 (INV-007).
 
       '
+    amendment:
+      slice: S2
+      status: DRAFT pending Desk sign-off (NOT frozen — see WAVE0_00 §1b API-008 lineCoverage row)
+      change: 'Additive, backward-compatible — optional `lineCoverage` array on
+        PaymentLinkCreateRequest exposes WHK-016 scoped payment->line allocation over HTTP.
+        Omitted/empty preserves today''s folio-wide behaviour byte-identically (WHK-012).
+        Also adds derived read-only `revenuePosted` to BookingLineResponse. No required-field
+        change; existing clients unaffected.'
     mapsTo:
     - SCH-030
     - SCH-031
     - INV-007
+    - WHK-016
   - id: API-009
     requirement: Read a single payment with amounts, references, and refunds.
     acceptance: 200 PaymentResponse; 404 when absent.
