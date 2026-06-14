@@ -4,6 +4,7 @@ import com.hotelops.core.booking.Booking;
 import com.hotelops.core.booking.BookingLine;
 import com.hotelops.core.customer.Customer;
 import com.hotelops.core.customer.CustomerPreference;
+import com.hotelops.core.ledger.LedgerPosting;
 import com.hotelops.core.payment.Payment;
 import com.hotelops.core.payment.Refund;
 import com.hotelops.core.product.Product;
@@ -18,6 +19,9 @@ import com.hotelops.core.web.dto.RefundResponse;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Entity -> DTO mapping for the HTTP boundary. Entities are NEVER serialised directly
@@ -68,7 +72,16 @@ public class DtoMapper {
                 attrs);
     }
 
+    /** Line with no ledger context — {@code revenuePosted} defaults to 0 (no postings supplied). */
     public BookingLineResponse toBookingLineResponse(BookingLine line) {
+        return toBookingLineResponse(line, 0L);
+    }
+
+    /**
+     * WHK-016 — line with its DERIVED {@code revenuePosted} supplied by the caller (the net
+     * ledger revenue summed for this line). Held outside the entity; computed at assembly.
+     */
+    public BookingLineResponse toBookingLineResponse(BookingLine line, long revenuePosted) {
         return new BookingLineResponse(
                 line.getId(),
                 line.getProduct().getId(),   // lazy-proxy id: no initialisation
@@ -79,13 +92,31 @@ public class DtoMapper {
                 line.getQuantity(),
                 line.getUnitPrice(),
                 line.getLineAmount(),
-                line.getCurrency());
+                line.getCurrency(),
+                revenuePosted);
     }
 
     /** Assemble a folio from the booking plus its lines (fetched explicitly by the caller). */
     public FolioResponse toFolio(Booking booking, List<BookingLine> lines) {
+        return toFolio(booking, lines, List.of());
+    }
+
+    /**
+     * WHK-016 — assemble a folio, deriving each line's {@code revenuePosted} from the booking's
+     * ledger postings (fetched explicitly by the caller via
+     * {@code LedgerPostingRepository.findByBookingId}). Postings are summed per booking line —
+     * REVENUE positive, REFUND_REVERSAL already stored negated (Trap D: one aggregate per line,
+     * a refunded line nets down rather than adding). Folio-level postings (null line) are
+     * ignored for the per-line figure.
+     */
+    public FolioResponse toFolio(Booking booking, List<BookingLine> lines, List<LedgerPosting> postings) {
+        Map<UUID, Long> revenueByLine = postings.stream()
+                .filter(p -> p.getBookingLine() != null)
+                .collect(Collectors.groupingBy(
+                        p -> p.getBookingLine().getId(),
+                        Collectors.summingLong(LedgerPosting::getAmount)));
         List<BookingLineResponse> lineDtos = lines.stream()
-                .map(this::toBookingLineResponse)
+                .map(line -> toBookingLineResponse(line, revenueByLine.getOrDefault(line.getId(), 0L)))
                 .toList();
         return new FolioResponse(
                 booking.getId(),
