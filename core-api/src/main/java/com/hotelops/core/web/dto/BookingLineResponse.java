@@ -9,6 +9,12 @@ import java.util.UUID;
 /**
  * API-006/007 line item — BookingLineResponse (WAVE0_02_OPENAPI.yaml).
  * unitPrice / lineAmount are MINOR UNITS; lineAmount == unitPrice * quantity.
+ *
+ * WHK-016 (Slice S2, DRAFT amendment) — {@code revenuePosted} is a DERIVED, read-only
+ * figure: the net revenue posted to the ledger for this line (sum of REVENUE less
+ * REFUND_REVERSAL, minor units). It makes scoped allocation HTTP-visible — a scoped £200
+ * spa capture shows £200 on the spa line and £0 on the room line. Computed at assembly from
+ * {@code ledger_posting}; never persisted.
  */
 public record BookingLineResponse(
         UUID id,
@@ -20,6 +26,7 @@ public record BookingLineResponse(
         int quantity,
         long unitPrice,
         long lineAmount,
-        String currency
+        String currency,
+        long revenuePosted
 ) {
 }

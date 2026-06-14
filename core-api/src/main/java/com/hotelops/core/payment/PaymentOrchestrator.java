@@ -4,6 +4,7 @@ import com.hotelops.core.common.enums.CaptureMode;
 import com.hotelops.core.payment.psp.PspGateway;
 import com.hotelops.core.payment.psp.dto.PspCreateLinkRequest;
 import com.hotelops.core.payment.psp.dto.PspPaymentLinkResponse;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
@@ -39,13 +40,26 @@ public class PaymentOrchestrator {
         this.pspGateway = pspGateway;
     }
 
+    /** Folio-wide overload (no scoped coverage) — WHK-012 fill-by-line-order applies. */
+    public Payment createPaymentLink(UUID bookingId, long amount, String currency,
+                                     CaptureMode captureModeOverride) {
+        return createPaymentLink(bookingId, amount, currency, captureModeOverride, null);
+    }
+
     /**
      * API-008 — create a payment link. tx1 persists the {@code PENDING} payment (minting
      * {@code merchantReference}); the PSP-001 call mints {@code paymentLinkId}; tx2 stamps it.
+     *
+     * WHK-016 (Slice S2) — optional {@code coverage} declares scoped payment→line allocation.
+     * It is threaded into {@link PaymentService}'s existing coverage overload (sum-validation
+     * and {@code PaymentLine} persistence live there) and is <b>never</b> sent to the PSP:
+     * {@link PspCreateLinkRequest} below carries no coverage, keeping the cross-service
+     * boundary unchanged.
      */
     public Payment createPaymentLink(UUID bookingId, long amount, String currency,
-                                     CaptureMode captureModeOverride) {
-        Payment pending = paymentService.createPaymentLink(bookingId, amount, currency, captureModeOverride);
+                                     CaptureMode captureModeOverride, List<LineCoverage> coverage) {
+        Payment pending = paymentService.createPaymentLink(
+                bookingId, amount, currency, captureModeOverride, coverage);
 
         // callbackUrl omitted → payments-sim uses its configured CORE_API_WEBHOOK_URL (PSP-016).
         PspPaymentLinkResponse psp = pspGateway.createLink(new PspCreateLinkRequest(

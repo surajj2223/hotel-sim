@@ -3,6 +3,7 @@ package com.hotelops.core.web;
 import com.hotelops.core.booking.Booking;
 import com.hotelops.core.booking.BookingLineRepository;
 import com.hotelops.core.booking.BookingService;
+import com.hotelops.core.ledger.LedgerPostingRepository;
 import com.hotelops.core.web.dto.BookingCreateRequest;
 import com.hotelops.core.web.dto.BookingLineCreateRequest;
 import com.hotelops.core.web.dto.FolioResponse;
@@ -32,13 +33,16 @@ public class BookingController {
 
     private final BookingService bookingService;
     private final BookingLineRepository lineRepository;
+    private final LedgerPostingRepository postingRepository;
     private final DtoMapper mapper;
 
     public BookingController(BookingService bookingService,
                              BookingLineRepository lineRepository,
+                             LedgerPostingRepository postingRepository,
                              DtoMapper mapper) {
         this.bookingService = bookingService;
         this.lineRepository = lineRepository;
+        this.postingRepository = postingRepository;
         this.mapper = mapper;
     }
 
@@ -66,6 +70,9 @@ public class BookingController {
     }
 
     private FolioResponse toFolio(Booking booking) {
-        return mapper.toFolio(booking, lineRepository.findByBookingId(booking.getId()));
+        // WHK-016: per-line revenuePosted is derived from the booking's ledger postings.
+        return mapper.toFolio(booking,
+                lineRepository.findByBookingId(booking.getId()),
+                postingRepository.findByBookingId(booking.getId()));
     }
 }

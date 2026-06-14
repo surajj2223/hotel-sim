@@ -61,7 +61,8 @@ public class BookingPaymentsController {
             @Valid @RequestBody PaymentLinkCreateRequest request) {
         humanAuth.assertAuthorised(humanAuthToken, "createPaymentLink");
         Payment payment = paymentOrchestrator.createPaymentLink(
-                bookingId, request.amount(), request.currency(), request.captureMode());
+                bookingId, request.amount(), request.currency(), request.captureMode(),
+                request.lineCoverage());
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(payment));
     }
 
