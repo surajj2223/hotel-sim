@@ -96,6 +96,16 @@ public class Payment {
     @OneToMany(mappedBy = "payment", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<Refund> refunds = new ArrayList<>();
 
+    /**
+     * WHK-016 — scoped payment→line coverage. Empty for a folio-wide payment (the WHK-012
+     * fill-by-line-order fallback applies). Read by {@link com.hotelops.core.ledger.LedgerService}
+     * off this entity (NOT via an injected repository) so that {@code LedgerService}'s
+     * constructor stays unchanged and the FROZEN {@code LedgerCorrectnessTest} — which builds
+     * {@code new Payment()} with an empty list — continues to exercise the fallback verbatim.
+     */
+    @OneToMany(mappedBy = "payment", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<PaymentLine> coverageLines = new ArrayList<>();
+
     @PrePersist
     void onCreate() {
         createdAt = updatedAt = OffsetDateTime.now();

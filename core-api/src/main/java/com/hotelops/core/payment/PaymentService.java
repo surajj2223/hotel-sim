@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -56,6 +57,7 @@ public class PaymentService {
     private final RefundRepository refundRepository;
     private final BookingRepository bookingRepository;
     private final BookingLineRepository bookingLineRepository;
+    private final PaymentLineRepository paymentLineRepository;
     private final BookingService bookingService;
     private final OutboxEventRepository outboxRepository;
     private final VerticalStrategyRegistry strategyRegistry;
@@ -64,6 +66,7 @@ public class PaymentService {
                           RefundRepository refundRepository,
                           BookingRepository bookingRepository,
                           BookingLineRepository bookingLineRepository,
+                          PaymentLineRepository paymentLineRepository,
                           BookingService bookingService,
                           OutboxEventRepository outboxRepository,
                           VerticalStrategyRegistry strategyRegistry) {
@@ -71,6 +74,7 @@ public class PaymentService {
         this.refundRepository = refundRepository;
         this.bookingRepository = bookingRepository;
         this.bookingLineRepository = bookingLineRepository;
+        this.paymentLineRepository = paymentLineRepository;
         this.bookingService = bookingService;
         this.outboxRepository = outboxRepository;
         this.strategyRegistry = strategyRegistry;
@@ -91,6 +95,19 @@ public class PaymentService {
     @Transactional
     public Payment createPaymentLink(UUID bookingId, long amount, String currency,
                                      CaptureMode captureModeOverride) {
+        return createPaymentLink(bookingId, amount, currency, captureModeOverride, null);
+    }
+
+    /**
+     * WHK-016 overload — same as above, but the payment MAY carry scoped {@code coverage}
+     * declaring exactly which booking lines it settles and for how much. When non-empty, the
+     * coverage amounts must sum to {@code amount} (rejected 400 otherwise) and are persisted as
+     * {@link PaymentLine} rows that drive scoped ledger allocation. When {@code null}/empty,
+     * the payment is folio-wide and the WHK-012 fill-by-line-order fallback applies unchanged.
+     */
+    @Transactional
+    public Payment createPaymentLink(UUID bookingId, long amount, String currency,
+                                     CaptureMode captureModeOverride, List<LineCoverage> coverage) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new EntityNotFoundException("Booking not found: " + bookingId));
         String shopperReference = booking.getCustomer().getShopperReference();
@@ -98,7 +115,7 @@ public class PaymentService {
                 ? captureModeOverride
                 : resolveDefaultCaptureMode(booking);
         return createPayment(bookingId, shopperReference, mintMerchantReference(),
-                mode, amount, currency);
+                mode, amount, currency, coverage);
     }
 
     /**
@@ -128,6 +145,20 @@ public class PaymentService {
     public Payment createPayment(UUID bookingId, String shopperReference,
                                  String merchantReference, CaptureMode captureMode,
                                  long amountRequested, String currency) {
+        return createPayment(bookingId, shopperReference, merchantReference, captureMode,
+                amountRequested, currency, null);
+    }
+
+    /**
+     * WHK-016 overload — persists optional scoped {@link PaymentLine} coverage rows alongside
+     * the payment. Each covered line must belong to this booking; the coverage amounts must
+     * sum exactly to {@code amountRequested} (Trap D — a partial/over-coverage is rejected
+     * loudly with 400, never silently accepted).
+     */
+    @Transactional
+    public Payment createPayment(UUID bookingId, String shopperReference,
+                                 String merchantReference, CaptureMode captureMode,
+                                 long amountRequested, String currency, List<LineCoverage> coverage) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new EntityNotFoundException("Booking not found: " + bookingId));
         Payment p = new Payment();
@@ -137,7 +168,47 @@ public class PaymentService {
         p.setCaptureMode(captureMode);
         p.setAmountRequested(amountRequested);
         p.setCurrency(currency != null ? currency : "GBP");
-        return paymentRepository.save(p);
+        paymentRepository.save(p);
+
+        if (coverage != null && !coverage.isEmpty()) {
+            persistCoverage(p, booking, amountRequested, coverage);
+        }
+        return p;
+    }
+
+    /**
+     * WHK-016 — validate and persist scoped coverage rows. Trap D: coverage must sum to the
+     * payment amount and every covered line must belong to this booking; both failures are
+     * {@link IllegalArgumentException} → 400.
+     */
+    private void persistCoverage(Payment payment, Booking booking, long amountRequested,
+                                 List<LineCoverage> coverage) {
+        long sum = 0;
+        for (LineCoverage c : coverage) {
+            if (c.amount() <= 0) {
+                throw new IllegalArgumentException(
+                        "Coverage amount must be positive for line " + c.bookingLineId());
+            }
+            BookingLine line = bookingLineRepository.findById(c.bookingLineId())
+                    .orElseThrow(() -> new EntityNotFoundException(
+                            "BookingLine not found: " + c.bookingLineId()));
+            if (!line.getBooking().getId().equals(booking.getId())) {
+                throw new IllegalArgumentException(
+                        "BookingLine " + c.bookingLineId() + " does not belong to booking " + booking.getId());
+            }
+            PaymentLine pl = new PaymentLine();
+            pl.setPayment(payment);
+            pl.setBookingLine(line);
+            pl.setAmount(c.amount());
+            pl.setCurrency(payment.getCurrency());
+            paymentLineRepository.save(pl);
+            sum += c.amount();
+        }
+        if (sum != amountRequested) {
+            throw new IllegalArgumentException(
+                    "Coverage amounts sum to " + sum + " but payment amount is " + amountRequested
+                    + " (WHK-016: scoped coverage must fully cover the payment).");
+        }
     }
 
     /**

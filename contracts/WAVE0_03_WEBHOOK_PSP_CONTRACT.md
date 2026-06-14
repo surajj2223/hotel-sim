@@ -52,6 +52,7 @@ Reference taxonomy (ENM-010): `shopperReference` (ours, opaque, stable), `mercha
 | WHK-013 | Outbox consumption is idempotent and correctly transactional: each event produces its postings at most once, even under concurrent ticks or retries (fixes GAP-2). | Concurrent processing test produces no duplicate postings. | SCH-060, GAP-2 |
 | WHK-014 | The webhook receiver endpoint is **not** human-gated (it is PSP→server, not operator→server), but is authenticated by a shared PSP signature/secret header. Operator-initiated writes that *trigger* PSP calls (capture/refund) are human-gated per `API-`/INV-007. | Webhook without valid signature → `401`; capture/refund without `X-Human-Auth` → `428`. | API-008..012, INV-007 |
 | WHK-015 | Completion is asynchronous (capture/cancel/refund return `202`; state + postings land on the webhook). `payments-sim` provides a test-only synchronous webhook-drive seam so end-to-end tests are deterministic. | Smoke test asserts final state + postings with no sleep/poll; production path stays async. See §6a. | API-010/011/012, §6a |
+| WHK-016 · **DRAFT** | **Scoped allocation, additive over WHK-012.** When a payment carries `payment_line` coverage rows, a `CAPTURE`/`REFUND` allocates the event amount across **exactly those lines**, scaled to their recorded coverage amounts (single rounding remainder → first covered line). Absent coverage rows, WHK-012 fill-by-line-order applies **unchanged**. A refund reverses against the **parent payment's** coverage when present (never re-derived from the booking). Coverage amounts must sum to the payment amount (else `400`). See §5.1. | Scoped capture posts one `REVENUE` row per covered line carrying that line's `vertical`; an unscoped capture reproduces the §5 worked examples byte-identically; coverage-sum mismatch → `400`. Worked proofs in §5.1. | SCH-022, WHK-012, **SCH-030** (new `payment_line`), GAP-1 |
 
 ---
 
@@ -157,10 +158,60 @@ Worked examples — folio = line R (room, £500 = 50000) created first, line S (
 Exactness: all arithmetic is in minor units (BIGINT); fill-by-order never creates rounding
 remainders (unlike pro-rata), so allocations always sum to the event amount.
 
-> **Refund-reversal ordering note (flag for sign-off):** the example reverses against
-> line order (room first). If a future requirement needs refunds to target the *spa* line
-> specifically, that needs line-targeted refunds — out of scope for the POC, flag if a demo
-> utterance requires it.
+> **Refund-reversal ordering note (flag for sign-off) — RESOLVED by WHK-016 (§5.1).** The
+> example above reverses against line order (room first); that remains the behaviour for a
+> **folio-wide (unscoped)** payment. Line-targeted refunds are now first-class via scoped
+> coverage: a refund follows the **parent payment's** `payment_line` rows when present, so a
+> spa-scoped payment's refund reverses the *spa* line specifically. See §5.1.
+
+---
+
+## 5.1 Scoped allocation (WHK-016) — additive over WHK-012
+
+**Status: DRAFT (Stage 4 Slice 1).** Pending Desk sign-off; the Freeze Ledger (`WAVE0_00 §1b`)
+is authoritative for freeze state.
+
+WHK-012's fill-by-line-order answers "the guest paid for the lot" — one folio-wide payment,
+allocated top-down. It cannot represent a payment that settles *specific* lines: a £200 spa
+payment on a folio whose room line sorts first would credit the **room** vertical (the GAP-1
+class of error, for sequential cross-vertical and multi-method tenders). WHK-016 adds a
+**many-to-many** `payment → booking_line` association carrying a per-line amount
+(`payment_line`; lives in `core-api`'s schema, additive — no change to `payment` /
+`booking_line` / `ledger_posting`). It is deliberately not a payment→line FK, so it supports
+**one card → many lines** and **one line → many cards** (split tender) at once.
+
+**Allocation rule (scoped):** when a payment has `payment_line` coverage rows, order them by
+the covered line's `created_at` ascending; give each line
+`floor(eventAmount × coverage_i ÷ Σcoverage)` of the captured (or refunded) amount, then
+assign the single rounding remainder to the **first** covered line. Each non-zero share
+becomes one `REVENUE` (capture) or `REFUND_REVERSAL` (refund, negative) posting carrying that
+line's `vertical`. For a **full** capture (`eventAmount == Σcoverage`) each line receives
+exactly its coverage and there is no remainder. Minor-unit math throughout; allocations sum
+exactly to the event amount (the same Σ-guard as WHK-012).
+
+**Fallback:** a payment with **no** coverage rows is folio-wide and uses WHK-012 unchanged —
+this is the untouched default proven by `LedgerCorrectnessTest`.
+
+**Refunds (resolves the ordering-note flag):** a refund reverses revenue against the lines its
+**parent payment** posted to. When the parent has coverage, scale that coverage to the refund
+amount (same rule, negative); otherwise WHK-012 fill-by-line-order. The scope is read from the
+parent payment, never re-derived from the booking's current active lines.
+
+**Coverage validity:** coverage amounts must sum to the payment's requested amount and every
+covered line must belong to the booking; a violation is rejected `400` (never partially
+accepted).
+
+Worked examples — folio = line R (room, £500 = 50000) created first, line S (spa, £200 =
+20000) created second; `currency = GBP`:
+
+- **Spa-scoped payment, capture 20000** (coverage S→20000): S→20000 (REVENUE/**SPA**). R
+  receives **nothing**. Contrast WHK-012, where 20000 would fill R first.
+- **Room-scoped payment, capture 50000** (coverage R→50000): R→50000 (REVENUE/ROOM); S
+  untouched. (Multi-method: a second, spa-scoped payment posts S independently.)
+- **Two-line scoped payment 70000, partial capture 35000** (coverage R→50000, S→20000):
+  R→25000, S→10000 (proportional; sum 35000). A remainder, if any, lands on R.
+- **Refund 6000 against a spa-scoped (S→20000) payment:** S→−6000 (REFUND_REVERSAL/SPA);
+  room untouched — the spa line specifically, per the parent payment's scope.
 
 ---
 
@@ -243,6 +294,7 @@ PSP; PSP signature authenticates the *callback*.
 | ID | Built | Commit/PR | Proving test |
 |----|-------|-----------|--------------|
 | WHK-001..015 | — | — | — |
+| WHK-016 | DRAFT — see §1b (not yet frozen) | — | — |
 
 ## 10. Changelog
 
@@ -250,3 +302,4 @@ PSP; PSP signature authenticates the *callback*.
 |---------|------|--------|
 | 0.1 | (draft) | Initial draft. Event vocabulary, envelope, transition table, per-line allocation (fill-by-line-order), two-layer idempotency, security boundary. Authored against existing payment/ledger code per `WAVE0_AUDIT`. |
 | 0.2 | (draft) | Added §6a + WHK-015: async completion (`202`, webhook-completed) recorded as a decided choice, with a test-only synchronous webhook-drive seam in `payments-sim` for deterministic end-to-end tests. Updated dependency line — `WAVE0_02` Stage 2 slice now drafted, freezes as a matched pair. |
+| 0.3 | 2026-06-14 | Added **WHK-016 (DRAFT)**: scoped payment→line allocation, additive over WHK-012, with new §5.1 and a requirements-table row. Resolved the §5 "Refund-reversal ordering note" flag by pointing it at WHK-016 (line-targeted refunds via the parent payment's coverage). No frozen WHK requirement text changed; WHK-012 fallback untouched. Pending Desk sign-off to freeze. |

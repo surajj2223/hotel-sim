@@ -6,6 +6,7 @@ import com.hotelops.core.common.enums.BookingLineStatus;
 import com.hotelops.core.common.enums.PostingType;
 import com.hotelops.core.common.enums.Vertical;
 import com.hotelops.core.payment.Payment;
+import com.hotelops.core.payment.PaymentLine;
 import com.hotelops.core.payment.PaymentRepository;
 import com.hotelops.core.payment.Refund;
 import com.hotelops.core.payment.RefundRepository;
@@ -53,17 +54,26 @@ public class LedgerService {
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
         Booking booking = payment.getBooking();
-        List<BookingLine> activeLines = activeLinesSorted(booking);
 
-        List<LedgerPosting> postings = allocate(
-                activeLines,
-                payment.getAmountCaptured(),
-                PostingType.REVENUE,
-                booking, payment, null,
-                payment.getCurrency(),
-                payment.getPspReference(),
-                payment.getMerchantReference()
-        );
+        // WHK-016: when the payment carries scoped coverage, allocate the captured amount
+        // across exactly those lines; otherwise WHK-012 fill-by-line-order (unchanged).
+        List<LedgerPosting> postings = payment.getCoverageLines().isEmpty()
+                ? allocate(
+                        activeLinesSorted(booking),
+                        payment.getAmountCaptured(),
+                        PostingType.REVENUE,
+                        booking, payment, null,
+                        payment.getCurrency(),
+                        payment.getPspReference(),
+                        payment.getMerchantReference())
+                : allocateScoped(
+                        payment.getCoverageLines(),
+                        payment.getAmountCaptured(),
+                        PostingType.REVENUE,
+                        booking, payment, null,
+                        payment.getCurrency(),
+                        payment.getPspReference(),
+                        payment.getMerchantReference());
 
         long sum = postings.stream().mapToLong(LedgerPosting::getAmount).sum();
         if (sum != payment.getAmountCaptured()) {
@@ -84,17 +94,28 @@ public class LedgerService {
                 .orElseThrow(() -> new EntityNotFoundException("Refund not found: " + refundId));
         Payment payment = refund.getPayment();
         Booking booking = payment.getBooking();
-        List<BookingLine> activeLines = activeLinesSorted(booking);
 
-        List<LedgerPosting> postings = allocate(
-                activeLines,
-                refund.getAmount(),
-                PostingType.REFUND_REVERSAL,
-                booking, payment, refund,
-                refund.getCurrency(),
-                refund.getPspReference(),
-                refund.getMerchantReference()
-        );
+        // WHK-016 (D2): a refund reverses revenue against the lines the PARENT PAYMENT posted
+        // to. When the parent has scoped coverage, reverse against exactly those lines (scaled
+        // to the refund amount); otherwise WHK-012 fill-by-line-order (unchanged). Trap E: the
+        // scope comes from the parent payment, NEVER re-derived from the booking's active lines.
+        List<LedgerPosting> postings = payment.getCoverageLines().isEmpty()
+                ? allocate(
+                        activeLinesSorted(booking),
+                        refund.getAmount(),
+                        PostingType.REFUND_REVERSAL,
+                        booking, payment, refund,
+                        refund.getCurrency(),
+                        refund.getPspReference(),
+                        refund.getMerchantReference())
+                : allocateScoped(
+                        payment.getCoverageLines(),
+                        refund.getAmount(),
+                        PostingType.REFUND_REVERSAL,
+                        booking, payment, refund,
+                        refund.getCurrency(),
+                        refund.getPspReference(),
+                        refund.getMerchantReference());
 
         long sumAbs = postings.stream().mapToLong(p -> -p.getAmount()).sum();
         if (sumAbs != refund.getAmount()) {
@@ -140,23 +161,82 @@ public class LedgerService {
             long assigned = Math.min(remaining, line.getLineAmount());
             if (assigned <= 0) continue;
 
-            LedgerPosting p = new LedgerPosting();
-            p.setPostingType(type);
-            p.setBooking(booking);
-            p.setBookingLine(line);
-            p.setPayment(payment);
-            p.setRefund(refund);
-            p.setVertical(line.getVertical());
-            p.setAmount(type == PostingType.REVENUE ? assigned : -assigned);
-            p.setCurrency(currency);
-            p.setPspReference(pspReference);
-            p.setMerchantReference(merchantReference);
-            p.setNarration(buildNarration(type, line.getVertical(), merchantReference));
-
-            result.add(p);
+            result.add(newPosting(type, booking, line, payment, refund, assigned,
+                    currency, pspReference, merchantReference));
             remaining -= assigned;
         }
         return result;
+    }
+
+    /**
+     * WHK-016 scoped allocation. Distributes {@code eventAmount} across exactly the covered
+     * lines, proportionally to each line's recorded coverage amount. All arithmetic is in
+     * minor units; each line's share is floored and the single rounding remainder is assigned
+     * deterministically to the first covered line (ordered by line {@code created_at}) so the
+     * Σ-postings == event-amount guard always holds and results are reproducible (Trap C).
+     *
+     * <p>For a full capture ({@code eventAmount == Σ coverage}), each line receives exactly its
+     * coverage amount and there is no remainder. For a partial capture, shares scale down.
+     */
+    private List<LedgerPosting> allocateScoped(
+            List<PaymentLine> coverage,
+            long eventAmount,
+            PostingType type,
+            Booking booking,
+            Payment payment,
+            Refund refund,
+            String currency,
+            String pspReference,
+            String merchantReference) {
+
+        // Deterministic order: by booking line created_at ascending (remainder → first).
+        List<PaymentLine> ordered = coverage.stream()
+                .sorted(Comparator.comparing(pl -> pl.getBookingLine().getCreatedAt()))
+                .toList();
+
+        long coverageSum = ordered.stream().mapToLong(PaymentLine::getAmount).sum();
+        if (coverageSum <= 0) {
+            throw new IllegalStateException("Scoped coverage sums to " + coverageSum
+                    + " for payment " + payment.getId() + "; cannot allocate.");
+        }
+
+        long[] shares = new long[ordered.size()];
+        long allocated = 0;
+        for (int i = 0; i < ordered.size(); i++) {
+            shares[i] = Math.floorDiv(eventAmount * ordered.get(i).getAmount(), coverageSum);
+            allocated += shares[i];
+        }
+        // Deterministic remainder placement (Trap C): the whole, single remainder to line 0.
+        shares[0] += (eventAmount - allocated);
+
+        List<LedgerPosting> result = new ArrayList<>();
+        for (int i = 0; i < ordered.size(); i++) {
+            long assigned = shares[i];
+            if (assigned <= 0) continue;
+            BookingLine line = ordered.get(i).getBookingLine();
+            result.add(newPosting(type, booking, line, payment, refund, assigned,
+                    currency, pspReference, merchantReference));
+        }
+        return result;
+    }
+
+    /** Build one per-line posting. REVENUE amounts are positive; REFUND_REVERSAL negated. */
+    private LedgerPosting newPosting(PostingType type, Booking booking, BookingLine line,
+                                     Payment payment, Refund refund, long assigned,
+                                     String currency, String pspReference, String merchantReference) {
+        LedgerPosting p = new LedgerPosting();
+        p.setPostingType(type);
+        p.setBooking(booking);
+        p.setBookingLine(line);
+        p.setPayment(payment);
+        p.setRefund(refund);
+        p.setVertical(line.getVertical());
+        p.setAmount(type == PostingType.REVENUE ? assigned : -assigned);
+        p.setCurrency(currency);
+        p.setPspReference(pspReference);
+        p.setMerchantReference(merchantReference);
+        p.setNarration(buildNarration(type, line.getVertical(), merchantReference));
+        return p;
     }
 
     private String buildNarration(PostingType type, Vertical vertical, String merchantReference) {
