@@ -62,24 +62,64 @@ tasks.named('test') {
 		showStackTraces true
 	}
 
-	// CI-1: print a one-line results tally at the end (and append it to the GitHub Actions
-	// run summary when present), and make silent Testcontainers skips loud. The
-	// Docker-presence guard in the test bases aborts integration tests (→ counted as
-	// skipped) when no container runtime is found. Locally that is a convenience; on CI a
-	// skipped integration test means it never ran against a real Postgres, so "green" would
-	// be a lie. There are no @Disabled tests in this module, so any skip == the Docker guard
-	// tripped — fail the build on CI (GitHub Actions sets CI=true) if anything was skipped.
-	// Local runs still print the tally but are not failed on skips.
+	// CI-1: accumulate per-class pass/fail/skip counts so the suite can render a rollup
+	// table at the end. (Single-fork test execution, but use a concurrent map to be safe.)
+	def classStats = new java.util.concurrent.ConcurrentHashMap()
+	afterTest { desc, result ->
+		def fqcn = desc.className ?: 'unknown'
+		def simple = fqcn.substring(fqcn.lastIndexOf('.') + 1)
+		def s = classStats.computeIfAbsent(simple) { [p: 0, f: 0, s: 0] }
+		switch (result.resultType.toString()) {
+			case 'SUCCESS': s.p++; break
+			case 'FAILURE': s.f++; break
+			default: s.s++
+		}
+	}
+
+	// CI-1: at the end of the suite print a per-class results table to the console/CI log
+	// (visible via `gh run view --log`) and a rendered markdown table to the GitHub Actions
+	// run-summary page — both artifact-free. Also enforce the skip-guard: the Docker-presence
+	// guard in the test bases aborts integration tests (→ counted as skipped) when no
+	// container runtime is found. Locally that is a convenience; on CI a skipped integration
+	// test means it never ran against a real Postgres, so "green" would be a lie. There are
+	// no @Disabled tests, so any skip == the Docker guard tripped — fail the build on CI
+	// (CI=true) if anything was skipped. Local runs still print the table without failing.
 	afterSuite { desc, result ->
 		if (desc.parent == null) {
 			def summary = "Test results: ${result.testCount} tests, " +
 					"${result.successfulTestCount} passed, ${result.failedTestCount} failed, " +
 					"${result.skippedTestCount} skipped (${result.resultType})"
-			println "\n${summary}\n"
+			def rows = classStats.collect { name, v -> [name, v.p, v.f, v.s] }.sort { it[0] }
+			def header = ['Test class', 'Passed', 'Failed', 'Skipped']
+			def totalRow = ['TOTAL', result.successfulTestCount, result.failedTestCount, result.skippedTestCount]
+
+			// ASCII table for the console / CI log.
+			def all = [header] + rows + [totalRow]
+			def widths = (0..3).collect { c -> all.collect { it[c].toString().length() }.max() }
+			def line = '+' + widths.collect { '-' * (it + 2) }.join('+') + '+'
+			def fmtRow = { r -> '|' + (0..3).collect { c ->
+				def cell = r[c].toString()
+				' ' + (c == 0 ? cell.padRight(widths[c]) : cell.padLeft(widths[c])) + ' '
+			}.join('|') + '|' }
+			def sb = new StringBuilder('\n')
+			sb << line << '\n' << fmtRow(header) << '\n' << line << '\n'
+			rows.each { sb << fmtRow(it) << '\n' }
+			sb << line << '\n' << fmtRow(totalRow) << '\n' << line << '\n'
+			println sb.toString()
+			println summary
+
+			// Markdown table for the GitHub Actions run-summary page.
 			def stepSummary = System.getenv('GITHUB_STEP_SUMMARY')
 			if (stepSummary) {
-				new File(stepSummary) << "- **${project.name}** — ${summary}\n"
+				def md = new StringBuilder()
+				md << "### ${project.name} — ${summary}\n\n"
+				md << "| Test class | Passed | Failed | Skipped |\n"
+				md << "|:--|--:|--:|--:|\n"
+				rows.each { md << "| ${it[0]} | ${it[1]} | ${it[2]} | ${it[3]} |\n" }
+				md << "| **TOTAL** | **${totalRow[1]}** | **${totalRow[2]}** | **${totalRow[3]}** |\n\n"
+				new File(stepSummary) << md.toString()
 			}
+
 			if (System.getenv('CI') && result.skippedTestCount > 0) {
 				throw new GradleException(
 						"CI skip-guard: ${result.skippedTestCount} test(s) were skipped. On CI the " +
