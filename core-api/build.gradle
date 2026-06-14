@@ -50,15 +50,37 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
-	// CI-1: make silent Testcontainers skips loud. The Docker-presence guard in the test
-	// bases aborts integration tests (→ counted as skipped) when no container runtime is
-	// found. Locally that is a convenience; on CI a skipped integration test means it never
-	// ran against a real Postgres, so "green" would be a lie. There are no @Disabled tests
-	// in this module, so any skip == the Docker guard tripped. Fail the build when running
-	// on CI (GitHub Actions sets CI=true) if anything was skipped. Local runs are unaffected.
-	if (System.getenv('CI')) {
-		afterSuite { desc, result ->
-			if (desc.parent == null && result.skippedTestCount > 0) {
+
+	// CI-1: surface per-test outcomes directly in the console/CI log so a glance at the
+	// build output (or `gh run view --log`) tells the story without downloading the HTML
+	// report. Full stack traces are printed on failure.
+	testLogging {
+		events "passed", "skipped", "failed"
+		exceptionFormat "full"
+		showExceptions true
+		showCauses true
+		showStackTraces true
+	}
+
+	// CI-1: print a one-line results tally at the end (and append it to the GitHub Actions
+	// run summary when present), and make silent Testcontainers skips loud. The
+	// Docker-presence guard in the test bases aborts integration tests (→ counted as
+	// skipped) when no container runtime is found. Locally that is a convenience; on CI a
+	// skipped integration test means it never ran against a real Postgres, so "green" would
+	// be a lie. There are no @Disabled tests in this module, so any skip == the Docker guard
+	// tripped — fail the build on CI (GitHub Actions sets CI=true) if anything was skipped.
+	// Local runs still print the tally but are not failed on skips.
+	afterSuite { desc, result ->
+		if (desc.parent == null) {
+			def summary = "Test results: ${result.testCount} tests, " +
+					"${result.successfulTestCount} passed, ${result.failedTestCount} failed, " +
+					"${result.skippedTestCount} skipped (${result.resultType})"
+			println "\n${summary}\n"
+			def stepSummary = System.getenv('GITHUB_STEP_SUMMARY')
+			if (stepSummary) {
+				new File(stepSummary) << "- **${project.name}** — ${summary}\n"
+			}
+			if (System.getenv('CI') && result.skippedTestCount > 0) {
 				throw new GradleException(
 						"CI skip-guard: ${result.skippedTestCount} test(s) were skipped. On CI the " +
 						"Testcontainers Postgres tests must run, not skip (Docker is expected to be " +
