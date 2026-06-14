@@ -2,6 +2,7 @@ package com.hotelops.paymentssim.service;
 
 import com.hotelops.paymentssim.common.error.InvalidStateTransitionException;
 import com.hotelops.paymentssim.common.reference.ReferenceMinter;
+import com.hotelops.paymentssim.domain.CaptureMode;
 import com.hotelops.paymentssim.domain.PspEventCode;
 import com.hotelops.paymentssim.domain.PspEventSequence;
 import com.hotelops.paymentssim.domain.PspEventSequenceId;
@@ -61,8 +62,22 @@ public class PspTriggerService {
     // PSP-013 — authorise
     // -------------------------------------------------------------------------
 
+    /**
+     * Returns the webhook(s) an authorise produces, in dispatch order:
+     * <ul>
+     *   <li>{@code MANUAL} — a single {@code AUTHORISATION} (capture is a later, separate
+     *       trigger). The two-step is unchanged.</li>
+     *   <li>{@code IMMEDIATE} — {@code AUTHORISATION} immediately followed by {@code CAPTURE}
+     *       (ENM-004 auth-and-capture-together; WHK-006 then WHK-007, the same two-event
+     *       path {@code core-api} consumes). The CAPTURE captures the full authorised
+     *       amount and reuses {@link #buildCaptureEvent} — no new event code.</li>
+     * </ul>
+     * Both row flips (PENDING→AUTHORISED→CAPTURED) and both seq rows commit in this one
+     * transaction; the controller dispatches each envelope <i>after</i> commit, so the
+     * HTTP call never sits inside the tx (D3 / PSP-006).
+     */
     @Transactional
-    public PreparedEvent prepareAuthorisation(String paymentLinkId, Long overrideAmount) {
+    public java.util.List<PreparedEvent> prepareAuthorisation(String paymentLinkId, Long overrideAmount) {
         PspPayment p = payments.findByPaymentLinkId(paymentLinkId)
                 .orElseThrow(() -> new EntityNotFoundException(
                         "Unknown paymentLinkId: " + paymentLinkId));
@@ -86,7 +101,7 @@ public class PspTriggerService {
 
         int seq = findOrCreateSeq(p.getPspReference(), PspEventCode.AUTHORISATION);
         OffsetDateTime now = OffsetDateTime.now();
-        WebhookEnvelope envelope = new WebhookEnvelope(
+        WebhookEnvelope authEnvelope = new WebhookEnvelope(
                 "evt_" + UUID.randomUUID(),
                 PspEventCode.AUTHORISATION,
                 idempotencyKey(p.getPspReference(), PspEventCode.AUTHORISATION, seq),
@@ -98,7 +113,15 @@ public class PspTriggerService {
                 true,
                 now.plus(AUTH_TTL_HOURS, ChronoUnit.HOURS),
                 null, null, null);
-        return new PreparedEvent(envelope, p.getCallbackUrl());
+        PreparedEvent auth = new PreparedEvent(authEnvelope, p.getCallbackUrl());
+
+        if (p.getCaptureMode() == CaptureMode.IMMEDIATE) {
+            // ENM-004 — auth-and-capture-together: capture the full authorised amount and
+            // chain the CAPTURE webhook behind the AUTHORISATION via the same builder.
+            PreparedEvent capture = buildCaptureEvent(p, amount);
+            return java.util.List.of(auth, capture);
+        }
+        return java.util.List.of(auth);
     }
 
     // -------------------------------------------------------------------------
@@ -120,7 +143,19 @@ public class PspTriggerService {
                     "Payment " + pspReference + " is not AUTHORISED (state " + p.getStatus() + ")");
         }
 
-        p.setAmountCaptured(pending);
+        return buildCaptureEvent(p, pending);
+    }
+
+    /**
+     * Flips {@code p} to {@code CAPTURED} for {@code captureAmount}, stamps the CAPTURE
+     * seq row, and builds the {@code CAPTURE} envelope. Shared by {@link #prepareCapture}
+     * (MANUAL, separate trigger) and the IMMEDIATE chain in {@link #prepareAuthorisation},
+     * so both paths emit an identical CAPTURE event with one source of truth. The CAPTURE
+     * seq is keyed on {@code (pspReference, CAPTURE)} — distinct from the AUTHORISATION
+     * seq, so the idempotency keys never collide.
+     */
+    private PreparedEvent buildCaptureEvent(PspPayment p, long captureAmount) {
+        p.setAmountCaptured(captureAmount);
         p.setPendingCaptureAmount(null);
         p.setStatus(PspPaymentStatus.CAPTURED);
 
@@ -132,7 +167,7 @@ public class PspTriggerService {
                 idempotencyKey(p.getPspReference(), PspEventCode.CAPTURE, seq),
                 p.getMerchantReference(),
                 p.getPspReference(),
-                pending,
+                captureAmount,
                 p.getCurrency(),
                 now,
                 true,

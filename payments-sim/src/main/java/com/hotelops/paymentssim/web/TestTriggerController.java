@@ -60,14 +60,24 @@ public class TestTriggerController {
             @RequestParam(name = "sync", defaultValue = "false") boolean sync,
             @RequestBody(required = false) AuthoriseTriggerRequest body) {
         Long override = body == null ? null : body.amount();
-        PreparedEvent prepared = triggerService.prepareAuthorisation(paymentLinkId, override);
-        var dispatchOutcome = dispatchOrFailLoud(prepared, sync);
-        if (dispatchOutcome != null) return dispatchOutcome;
+        // IMMEDIATE returns two events (AUTHORISATION then CAPTURE); MANUAL returns one.
+        // Dispatch them in order through the same dispatcher — sync delivers inline,
+        // async submits to the single-thread executor which preserves order — and
+        // fail-loud on the first failed delivery.
+        java.util.List<PreparedEvent> events = triggerService.prepareAuthorisation(paymentLinkId, override);
+        for (PreparedEvent event : events) {
+            var dispatchOutcome = dispatchOrFailLoud(event, sync);
+            if (dispatchOutcome != null) return dispatchOutcome;
+        }
+        PreparedEvent auth = events.get(0);
+        PspPaymentStatus finalStatus = events.size() > 1
+                ? PspPaymentStatus.CAPTURED       // IMMEDIATE: auth-and-capture-together
+                : PspPaymentStatus.AUTHORISED;     // MANUAL: awaiting a separate capture
         AuthoriseTriggerResponse resp = new AuthoriseTriggerResponse(
                 paymentLinkId,
-                prepared.envelope().pspReference(),
-                prepared.envelope().amount(),
-                PspPaymentStatus.AUTHORISED);
+                auth.envelope().pspReference(),
+                auth.envelope().amount(),
+                finalStatus);
         return ResponseEntity.status(sync ? HttpStatus.OK : HttpStatus.ACCEPTED).body(resp);
     }
 
