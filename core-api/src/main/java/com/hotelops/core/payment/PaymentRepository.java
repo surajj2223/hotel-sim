@@ -28,4 +28,12 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
            WHERE p.booking.id = :bookingId
            """)
     long sumCapturedForBooking(@Param("bookingId") UUID bookingId);
+
+    /** D3 (Stage 4): sum of authorised amounts for a booking (drives booking.amountAuthorised). */
+    @Query("""
+           SELECT COALESCE(SUM(p.amountAuthorised), 0)
+           FROM Payment p
+           WHERE p.booking.id = :bookingId
+           """)
+    long sumAuthorisedForBooking(@Param("bookingId") UUID bookingId);
 }

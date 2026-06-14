@@ -152,18 +152,22 @@ public class BookingService {
      * INV-004 — recompute the three amount columns on the booking.
      * Must be called inside the same write transaction as the triggering event.
      *
-     * - totalAmount     = sum of ACTIVE line_amounts
-     * - amountPaid      = sum of amount_captured across all payments for this booking
-     * - amountRefunded  = sum of settled refund amounts for this booking's payments
+     * - totalAmount      = sum of ACTIVE line_amounts
+     * - amountPaid       = sum of amount_captured across all payments for this booking
+     * - amountRefunded   = sum of settled refund amounts for this booking's payments
+     * - amountAuthorised = sum of amount_authorised across all payments (D3, Stage 4 — the
+     *                      live "secured" figure; visible only, no enforcement)
      */
     public void recalculateTotals(Booking booking) {
-        long total    = bookingRepository.sumActiveLineAmounts(booking.getId());
-        long paid     = paymentRepository.sumCapturedForBooking(booking.getId());
-        long refunded = refundRepository.sumSettledRefundsForBooking(booking.getId());
+        long total      = bookingRepository.sumActiveLineAmounts(booking.getId());
+        long paid       = paymentRepository.sumCapturedForBooking(booking.getId());
+        long refunded   = refundRepository.sumSettledRefundsForBooking(booking.getId());
+        long authorised = paymentRepository.sumAuthorisedForBooking(booking.getId());
 
         booking.setTotalAmount(total);
         booking.setAmountPaid(paid);
         booking.setAmountRefunded(refunded);
+        booking.setAmountAuthorised(authorised);
     }
 
     // -------------------------------------------------------------------------

@@ -96,6 +96,7 @@ class InvariantTest {
     @Mock BookingRepository bookingRepository;
     @Mock BookingLineRepository bookingLineRepository;
     @Mock PaymentRepository paymentRepository;
+    @Mock PaymentLineRepository paymentLineRepository;
     @Mock RefundRepository refundRepository;
     @Mock CustomerRepository customerRepository2;
     @Mock VerticalStrategyRegistry strategyRegistry;
@@ -171,7 +172,7 @@ class InvariantTest {
     private PaymentService newPaymentService() {
         return new PaymentService(
                 paymentRepository, refundRepository, bookingRepository,
-                bookingLineRepository, bookingService, outboxRepository,
+                bookingLineRepository, paymentLineRepository, bookingService, outboxRepository,
                 strategyRegistry);
     }
 

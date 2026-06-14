@@ -10,7 +10,8 @@ import java.util.UUID;
  *
  * totalAmount / amountPaid / amountRefunded / balance are server-derived (INV-004) and
  * read-only over the API; balance == totalAmount - amountPaid + amountRefunded (SCH-021).
- * All amounts are MINOR UNITS.
+ * amountAuthorised (D3, Stage 4) is the live "secured" roll-up — sum of payment.amountAuthorised
+ * for the booking; visible only, no enforcement. All amounts are MINOR UNITS.
  */
 public record FolioResponse(
         UUID id,
@@ -20,6 +21,7 @@ public record FolioResponse(
         long totalAmount,
         long amountPaid,
         long amountRefunded,
+        long amountAuthorised,
         long balance,
         List<BookingLineResponse> lines
 ) {
