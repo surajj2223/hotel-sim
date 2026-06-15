@@ -8,6 +8,12 @@ psp-sim:
   webhook-secret: ${PSP_WEBHOOK_SECRET:dev-webhook-secret}
   core-api-webhook-url: ${CORE_API_WEBHOOK_URL:http://core-api:8080/webhooks/psp}
   hosted-base-url: ${PSP_SIM_HOSTED_BASE_URL:http://payments-sim:8081}
+  # 1C-a — delay (ms) before the async settlement webhook fires on the real request path.
+  # Default 0 = effectively immediate. A non-zero value makes the out-of-band settlement
+  # visible in a demo (core-api sits AUTHORISED, then flips to CAPTURED when the webhook
+  # lands). Applied on the executor thread only — never blocks the request thread or the
+  # 202 response, and never affects the test-only sync seam.
+  settlement-delay-ms: ${PSP_SIM_SETTLEMENT_DELAY_MS:0}
 
 spring:
   datasource:

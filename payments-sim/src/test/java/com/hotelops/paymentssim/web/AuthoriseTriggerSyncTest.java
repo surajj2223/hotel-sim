@@ -31,12 +31,12 @@ import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.DockerClientFactory;
 
 /**
- * End-to-end (Part-A side) of the async money loop: PSP-013 (authorise trigger),
- * PSP-015 (sync seam, enabled under {@code test} profile), PSP-016 (signed webhook
- * delivery to {@code core-api}'s receiver). A {@link com.hotelops.paymentssim.webhook.RecordingWebhookReceiver}
- * stands in for {@code core-api}; the test drives authorise→capture with
- * {@code ?sync=true} and asserts each webhook arrived, carried a valid
- * {@code X-PSP-Signature}, and flipped the persisted row — <b>no sleeps</b>.
+ * End-to-end money loop: PSP-013 (authorise trigger), PSP-015 (sync seam for authorise,
+ * the customer-checkout stand-in, enabled under {@code test} profile), PSP-016 (signed
+ * webhook delivery to {@code core-api}'s receiver), and 1C-a (the real /captures endpoint
+ * self-emitting the CAPTURE webhook). A {@link com.hotelops.paymentssim.webhook.RecordingWebhookReceiver}
+ * stands in for {@code core-api}; authorise is driven with {@code ?sync=true} (inline),
+ * while capture rides the real async self-emit path and the test polls the receiver for it.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestcontainersConfiguration.class)
@@ -102,20 +102,18 @@ class AuthoriseTriggerSyncTest {
             assertThat(afterAuth.getPspReference()).isNotBlank();
             String pspRef = afterAuth.getPspReference();
 
-            // 4. PSP-002 — record capture intent (partial: 54000 of 70000).
+            // 4. 1C-a — the real /captures endpoint records intent (partial: 54000 of 70000)
+            //    AND self-emits the CAPTURE webhook asynchronously after commit. No /v1/test
+            //    settle step is needed (and adding one would double-fire the same event).
             var capAck = rest.exchange(
                     url("/v1/payments/" + pspRef + "/captures"),
                     HttpMethod.POST, new HttpEntity<>(new CaptureRequest(54000L), authJson()), String.class);
             assertThat(capAck.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
 
-            // 5. PSP-015 — drive the CAPTURE webhook synchronously.
-            var capResp = rest.exchange(
-                    url("/v1/test/payments/" + pspRef + "/capture?sync=true"),
-                    HttpMethod.POST, new HttpEntity<>(authJson()), String.class);
-            assertThat(capResp.getStatusCode()).isEqualTo(HttpStatus.OK);
+            // 5. The CAPTURE webhook lands out-of-band — poll the receiver for it.
+            awaitReceived(receiver, 2);
 
             // 6. CAPTURE webhook arrived, signed, idempotencyKey deterministic.
-            assertThat(receiver.received).hasSize(2);
             var capHook = receiver.received.get(1);
             assertValidSignature(capHook);
             JsonNode capBody = mapper.readTree(capHook.body());
@@ -128,6 +126,16 @@ class AuthoriseTriggerSyncTest {
             assertThat(afterCapture.getAmountCaptured()).isEqualTo(54000L);
             assertThat(afterCapture.getPendingCaptureAmount()).isNull();
         }
+    }
+
+    /** Poll until the receiver has at least {@code expected} deliveries (async self-emit path). */
+    private static void awaitReceived(
+            com.hotelops.paymentssim.webhook.RecordingWebhookReceiver receiver, int expected) throws InterruptedException {
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(5).toNanos();
+        while (receiver.received.size() < expected && System.nanoTime() < deadline) {
+            Thread.sleep(20);
+        }
+        assertThat(receiver.received).hasSize(expected);
     }
 
     private void assertValidSignature(com.hotelops.paymentssim.webhook.RecordingWebhookReceiver.Received hook) {

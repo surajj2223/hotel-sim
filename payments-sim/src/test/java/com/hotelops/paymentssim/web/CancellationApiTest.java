@@ -16,8 +16,13 @@ class CancellationApiTest extends AbstractApiTest {
         return url("/v1/payments/" + p.getPspReference() + "/cancellations");
     }
 
+    // 1C-a: the real /cancellations endpoint records intent (tx1) AND settles + fires the
+    // async CANCELLATION webhook (tx2). The synchronous tx2 row flip lands even though the
+    // webhook delivery to the (unreachable) seeded callbackUrl fails fast and is logged with
+    // no retry, so the post-request row is CANCELLED. The 202 ack still reports
+    // PENDING_CANCELLATION (intent acceptance; the webhook is the settlement notification).
     @Test
-    void recordsCancellationIntentReturns202() {
+    void realCancellationRequestSettlesAndReturns202() {
         PspPayment p = seedAuthorised(70000, 70000);
 
         var response = rest.postForEntity(cancelUrl(p), emptyAuthEntity(), CancellationAckResponse.class);
@@ -29,8 +34,8 @@ class CancellationApiTest extends AbstractApiTest {
         assertThat(body.status()).isEqualTo(CancellationAckResponse.PENDING_CANCELLATION);
 
         var reloaded = paymentRepository.findByPspReference(p.getPspReference()).orElseThrow();
-        assertThat(reloaded.getStatus()).isEqualTo(PspPaymentStatus.AUTHORISED);
-        assertThat(reloaded.isCancellationPending()).isTrue();
+        assertThat(reloaded.getStatus()).isEqualTo(PspPaymentStatus.CANCELLED);
+        assertThat(reloaded.isCancellationPending()).isFalse();
     }
 
     @Test
@@ -55,6 +60,9 @@ class CancellationApiTest extends AbstractApiTest {
         assertThat(response.getBody().code()).isEqualTo("CANCEL_NOT_PERMITTED");
     }
 
+    // Since the first real /cancellations now settles synchronously to CANCELLED, the second
+    // request is rejected by the "not AUTHORISED" guard (CANCEL_NOT_PERMITTED) rather than the
+    // queued-cancellation guard (CANCEL_ALREADY_REQUESTED). Both are 409.
     @Test
     void secondCancelRequestReturns409() {
         PspPayment p = seedAuthorised(70000, 70000);
@@ -62,7 +70,7 @@ class CancellationApiTest extends AbstractApiTest {
 
         var response = rest.postForEntity(cancelUrl(p), emptyAuthEntity(), ApiError.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(response.getBody().code()).isEqualTo("CANCEL_ALREADY_REQUESTED");
+        assertThat(response.getBody().code()).isEqualTo("CANCEL_NOT_PERMITTED");
     }
 
     @Test

@@ -17,8 +17,14 @@ class CaptureApiTest extends AbstractApiTest {
         return url("/v1/payments/" + p.getPspReference() + "/captures");
     }
 
+    // 1C-a: the real /captures endpoint now records intent (tx1) AND settles + fires the
+    // async CAPTURE webhook (tx2). With production wiring (no `test` profile) the webhook
+    // POSTs to the seeded callbackUrl (core-api), which is unreachable here — the delivery
+    // fails fast and is logged with no retry, but the synchronous tx2 row flip still lands,
+    // so the post-request row is CAPTURED. The 202 ack still reports PENDING_CAPTURE (it
+    // reflects intent acceptance; the webhook is the authoritative settlement notification).
     @Test
-    void recordsCaptureIntentReturns202() {
+    void realCaptureRequestSettlesAndReturns202() {
         PspPayment p = seedAuthorised(70000, 70000);
 
         var response = rest.postForEntity(captureUrl(p),
@@ -32,9 +38,9 @@ class CaptureApiTest extends AbstractApiTest {
         assertThat(body.status()).isEqualTo(CaptureAckResponse.PENDING_CAPTURE);
 
         var reloaded = paymentRepository.findByPspReference(p.getPspReference()).orElseThrow();
-        assertThat(reloaded.getStatus()).isEqualTo(PspPaymentStatus.AUTHORISED);
-        assertThat(reloaded.getPendingCaptureAmount()).isEqualTo(54000L);
-        assertThat(reloaded.getAmountCaptured()).isZero();
+        assertThat(reloaded.getStatus()).isEqualTo(PspPaymentStatus.CAPTURED);
+        assertThat(reloaded.getPendingCaptureAmount()).isNull();
+        assertThat(reloaded.getAmountCaptured()).isEqualTo(54000L);
     }
 
     @Test
@@ -46,8 +52,10 @@ class CaptureApiTest extends AbstractApiTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         assertThat(response.getBody().amount()).isEqualTo(70000L);
-        assertThat(paymentRepository.findByPspReference(p.getPspReference()).orElseThrow()
-                .getPendingCaptureAmount()).isEqualTo(70000L);
+        var reloaded = paymentRepository.findByPspReference(p.getPspReference()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(PspPaymentStatus.CAPTURED);
+        assertThat(reloaded.getPendingCaptureAmount()).isNull();
+        assertThat(reloaded.getAmountCaptured()).isEqualTo(70000L);
     }
 
     @Test
@@ -63,6 +71,10 @@ class CaptureApiTest extends AbstractApiTest {
                 .getPendingCaptureAmount()).isNull();
     }
 
+    // INV-005 single-capture is still enforced, but since the first real /captures now
+    // settles synchronously to CAPTURED, the second request is rejected by the
+    // "not AUTHORISED" guard (INVALID_STATE) rather than the queued-capture guard
+    // (ALREADY_CAPTURED). Both are 409; the first capture is unaffected.
     @Test
     void secondCaptureRequestReturns409() {
         PspPayment p = seedAuthorised(70000, 70000);
@@ -72,9 +84,10 @@ class CaptureApiTest extends AbstractApiTest {
                 entity(new CaptureRequest(10000L)), ApiError.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(response.getBody().code()).isEqualTo("ALREADY_CAPTURED");
-        assertThat(paymentRepository.findByPspReference(p.getPspReference()).orElseThrow()
-                .getPendingCaptureAmount()).isEqualTo(54000L);
+        assertThat(response.getBody().code()).isEqualTo("INVALID_STATE");
+        var reloaded = paymentRepository.findByPspReference(p.getPspReference()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(PspPaymentStatus.CAPTURED);
+        assertThat(reloaded.getAmountCaptured()).isEqualTo(54000L);
     }
 
     @Test

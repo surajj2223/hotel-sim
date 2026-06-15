@@ -391,7 +391,7 @@
 		},
 		{
 			"name": "04 · Payment lifecycle (real payments-sim webhooks)",
-			"description": "The full money loop, driven by **real** sim triggers. core-api requests; the sim authorises/captures/refunds and fires its own signed webhook back. State is read from core-api after each webhook lands. One `pspReference`, sim-owned end to end.",
+			"description": "The full money loop, driven by the **real** sim endpoints. core-api requests; the sim authorises (customer-checkout stand-in) then SELF-EMITS its own signed CAPTURE/REFUND webhooks (1C-a) — no /v1/test settle steps. State is read back from core-api by polling after each async webhook lands. One pspReference, sim-owned end to end.",
 			"item": [
 				{
 					"name": "1 · API-008 · Create payment link (MANUAL, gated)",
@@ -451,7 +451,7 @@
 					]
 				},
 				{
-					"name": "2 · [SIM] Authorise the link (real webhook fires)",
+					"name": "2 · [SIM] Customer authorises link (stand-in for pay-web checkout)",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -460,7 +460,7 @@
 								"value": "application/json"
 							}
 						],
-						"description": "payments-sim authorises, mints pspReference, and (sync) posts the signed AUTHORISATION webhook to core-api inline. /v1/test needs no X-PSP-Api-Key.",
+						"description": "Stand-in for the customer paying on a hosted checkout — pay-web is deferred (RX-001), so this is the ONE event with no real (non-test) trigger; it represents the customer, not an operator action. payments-sim authorises, mints pspReference, and (sync) posts the signed AUTHORISATION webhook to core-api inline. Capture / cancel / refund are now SELF-EMITTED by the real sim endpoints (1C-a) and need no /v1/test step. /v1/test needs no X-PSP-Api-Key and is reachable only under the smoke profile.",
 						"body": {
 							"mode": "raw",
 							"raw": "{}",
@@ -555,7 +555,7 @@
 								"value": "{{humanAuthToken}}"
 							}
 						],
-						"description": "core-api validates + calls payments-sim (PSP-002) to QUEUE capture. No state change yet — the CAPTURE webhook (next step) is authoritative.",
+						"description": "core-api validates + calls payments-sim (PSP-002). 1C-a: the sim's real /captures endpoint records intent AND self-emits the CAPTURE webhook asynchronously after commit — no /v1/test settle step. The next step polls core-api until the webhook lands and revenue posts (capture, not auth, is the revenue event).",
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"amount\": 18000\n}",
@@ -602,45 +602,7 @@
 					]
 				},
 				{
-					"name": "5 · [SIM] Settle capture (real webhook → revenue posts)",
-					"request": {
-						"method": "POST",
-						"header": [],
-						"description": "payments-sim fires the CAPTURE webhook to core-api; on receipt core-api posts REVENUE to the ledger (capture, not auth, is the revenue event).",
-						"url": {
-							"raw": "{{pspBaseUrl}}/v1/test/payments/{{pspReference}}/capture?sync=true",
-							"host": [
-								"{{pspBaseUrl}}"
-							],
-							"path": [
-								"v1",
-								"test",
-								"payments",
-								"{{pspReference}}",
-								"capture"
-							],
-							"query": [
-								{
-									"key": "sync",
-									"value": "true"
-								}
-							]
-						}
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"type": "text/javascript",
-								"exec": [
-									"pm.test('200 (sync) capture dispatched', () => pm.response.to.have.status(200));"
-								]
-							}
-						}
-					]
-				},
-				{
-					"name": "6 · API-009 · Get payment (expect CAPTURED)",
+					"name": "5 · API-009 · Get payment (expect CAPTURED)",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -661,16 +623,25 @@
 							"script": {
 								"type": "text/javascript",
 								"exec": [
+									"const b = pm.response.json();",
 									"pm.test('200', () => pm.response.to.have.status(200));",
-									"const p = pm.response.json();",
-									"pm.test('status CAPTURED', () => pm.expect(p.status).to.eql('CAPTURED'));"
+									"const __k = pm.info.requestName;",
+									"let __n = Number(pm.collectionVariables.get('poll:' + __k) || 0);",
+									"const __done = (b.status === 'CAPTURED');",
+									"if (__done || __n >= 30) {",
+									"  pm.collectionVariables.set('poll:' + __k, 0);",
+									"  pm.test(\"status CAPTURED (async self-emitted webhook landed)\", () => pm.expect(b.status === 'CAPTURED').to.eql(true));",
+									"} else {",
+									"  pm.collectionVariables.set('poll:' + __k, __n + 1);",
+									"  postman.setNextRequest(__k);",
+									"}"
 								]
 							}
 						}
 					]
 				},
 				{
-					"name": "7 · API-012 · Request refund (gated, 202)",
+					"name": "6 · API-012 · Request refund (gated, 202)",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -683,7 +654,7 @@
 								"value": "{{humanAuthToken}}"
 							}
 						],
-						"description": "core-api persists a PENDING child refund (minting its own merchantReference, chaining originalReference → parent pspReference) and calls payments-sim (PSP-004) to queue the REFUND webhook.",
+						"description": "core-api persists a PENDING child refund (minting its own merchantReference, chaining originalReference → parent pspReference) and calls payments-sim (PSP-004). 1C-a: the sim's real /refunds endpoint self-emits the REFUND webhook asynchronously after commit — no /v1/test settle step. The final step polls until the reversal posts (refund pspReference stamped on WHK-009).",
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"amount\": {{refundAmount}},\n  \"reason\": \"guest goodwill — partial refund\"\n}",
@@ -722,45 +693,7 @@
 					]
 				},
 				{
-					"name": "8 · [SIM] Settle refund (real webhook → reversal posts)",
-					"request": {
-						"method": "POST",
-						"header": [],
-						"description": "payments-sim fires the REFUND webhook; core-api settles the refund row and posts a REFUND_REVERSAL, traceable via originalReference.",
-						"url": {
-							"raw": "{{pspBaseUrl}}/v1/test/refunds/{{refundMerchantReference}}/settle?sync=true",
-							"host": [
-								"{{pspBaseUrl}}"
-							],
-							"path": [
-								"v1",
-								"test",
-								"refunds",
-								"{{refundMerchantReference}}",
-								"settle"
-							],
-							"query": [
-								{
-									"key": "sync",
-									"value": "true"
-								}
-							]
-						}
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"type": "text/javascript",
-								"exec": [
-									"pm.test('200 (sync) refund dispatched', () => pm.response.to.have.status(200));"
-								]
-							}
-						}
-					]
-				},
-				{
-					"name": "9 · API-009 · List booking payments (final state)",
+					"name": "7 · API-009 · List booking payments (final state)",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -783,13 +716,25 @@
 							"script": {
 								"type": "text/javascript",
 								"exec": [
-									"pm.test('200', () => pm.response.to.have.status(200));",
 									"const arr = pm.response.json();",
-									"pm.test('one payment, CAPTURED, with one settled refund', () => {",
-									"  pm.expect(arr).to.be.an('array').with.lengthOf(1);",
-									"  pm.expect(arr[0].status).to.eql('CAPTURED');",
-									"  pm.expect(arr[0].refunds).to.be.an('array').with.lengthOf(1);",
-									"});"
+									"pm.test('200', () => pm.response.to.have.status(200));",
+									"const __k = pm.info.requestName;",
+									"let __n = Number(pm.collectionVariables.get('poll:' + __k) || 0);",
+									"const __pay = Array.isArray(arr) && arr.length === 1 ? arr[0] : null;",
+									"const __r = __pay && Array.isArray(__pay.refunds) && __pay.refunds.length === 1 ? __pay.refunds[0] : null;",
+									"const __done = !!(__pay && __pay.status === 'CAPTURED' && __r && /^PSP-[0-9A-Za-z]{16}$/.test(__r.pspReference || ''));",
+									"if (__done || __n >= 30) {",
+									"  pm.collectionVariables.set('poll:' + __k, 0);",
+									"  pm.test('one payment CAPTURED with one settled refund (reversal posted)', () => {",
+									"    pm.expect(arr).to.be.an('array').with.lengthOf(1);",
+									"    pm.expect(arr[0].status).to.eql('CAPTURED');",
+									"    pm.expect(arr[0].refunds).to.be.an('array').with.lengthOf(1);",
+									"    pm.expect(arr[0].refunds[0].pspReference).to.match(/^PSP-[0-9A-Za-z]{16}$/);",
+									"  });",
+									"} else {",
+									"  pm.collectionVariables.set('poll:' + __k, __n + 1);",
+									"  postman.setNextRequest(__k);",
+									"}"
 								]
 							}
 						}
@@ -799,7 +744,7 @@
 		},
 		{
 			"name": "05 · Alternate path: cancel authorisation (real webhook)",
-			"description": "Run on a FRESH payment that is AUTHORISED but not captured (do folder 04 steps 1–3 against a new folio first, OR run this instead of capturing). Cancellation of an uncaptured auth posts NOTHING (auth ≠ revenue). Driven by a real sim trigger.",
+			"description": "Run on a FRESH payment that is AUTHORISED but not captured. Cancellation of an uncaptured auth posts NOTHING (auth ≠ revenue). The real sim /cancellations endpoint self-emits the CANCELLATION webhook (1C-a); core-api state is read back by polling.",
 			"item": [
 				{
 					"name": "1 · API-011 · Request cancellation (gated, 202)",
@@ -815,7 +760,7 @@
 								"value": "{{humanAuthToken}}"
 							}
 						],
-						"description": "core-api calls payments-sim (PSP-003) to queue the CANCELLATION webhook.",
+						"description": "core-api validates + calls payments-sim (PSP-003). 1C-a: the sim's real /cancellations endpoint self-emits the CANCELLATION webhook asynchronously after commit — no /v1/test settle step. Cancelling an uncaptured auth posts NOTHING (auth ≠ revenue). The next step polls core-api until the webhook transitions the payment.",
 						"url": {
 							"raw": "{{baseUrl}}/payments/{{paymentId}}/cancel",
 							"host": [
@@ -853,45 +798,7 @@
 					]
 				},
 				{
-					"name": "2 · [SIM] Settle cancellation (real webhook)",
-					"request": {
-						"method": "POST",
-						"header": [],
-						"description": "payments-sim fires the CANCELLATION webhook; core-api transitions the payment. No ledger posting — nothing was captured.",
-						"url": {
-							"raw": "{{pspBaseUrl}}/v1/test/payments/{{pspReference}}/cancel?sync=true",
-							"host": [
-								"{{pspBaseUrl}}"
-							],
-							"path": [
-								"v1",
-								"test",
-								"payments",
-								"{{pspReference}}",
-								"cancel"
-							],
-							"query": [
-								{
-									"key": "sync",
-									"value": "true"
-								}
-							]
-						}
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"type": "text/javascript",
-								"exec": [
-									"pm.test('200 (sync) cancellation dispatched', () => pm.response.to.have.status(200));"
-								]
-							}
-						}
-					]
-				},
-				{
-					"name": "3 · API-009 · Get payment (expect CANCELLED)",
+					"name": "2 · API-009 · Get payment (expect CANCELLED)",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -912,8 +819,18 @@
 							"script": {
 								"type": "text/javascript",
 								"exec": [
+									"const b = pm.response.json();",
 									"pm.test('200', () => pm.response.to.have.status(200));",
-									"pm.test('status CANCELLED', () => pm.expect(pm.response.json().status).to.eql('CANCELLED'));"
+									"const __k = pm.info.requestName;",
+									"let __n = Number(pm.collectionVariables.get('poll:' + __k) || 0);",
+									"const __done = (b.status === 'CANCELLED');",
+									"if (__done || __n >= 30) {",
+									"  pm.collectionVariables.set('poll:' + __k, 0);",
+									"  pm.test(\"status CANCELLED (async self-emitted webhook landed)\", () => pm.expect(b.status === 'CANCELLED').to.eql(true));",
+									"} else {",
+									"  pm.collectionVariables.set('poll:' + __k, __n + 1);",
+									"  postman.setNextRequest(__k);",
+									"}"
 								]
 							}
 						}
