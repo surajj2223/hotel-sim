@@ -237,11 +237,13 @@ CREATE TABLE booking_line (
   unit_price    BIGINT NOT NULL,                           -- SNAPSHOT at booking time (minor units)
   currency      CHAR(3) NOT NULL DEFAULT 'GBP',
   line_amount   BIGINT NOT NULL,                           -- unit_price * quantity (snapshot)
+  -- ⚠️ The line_amount column comment above and chk_line_amount below are superseded by
+  -- RX-002, see Freeze Ledger WAVE0_00 §1b. (line_amount is strategy-owned; ROOM × nights.)
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT chk_line_qty        CHECK (quantity > 0),
   CONSTRAINT chk_line_window     CHECK (ends_at > starts_at),
-  CONSTRAINT chk_line_amount     CHECK (line_amount = unit_price * quantity)
+  CONSTRAINT chk_line_amount     CHECK (line_amount = unit_price * quantity)  -- superseded by RX-002 (see Freeze Ledger §1b)
 );
 CREATE INDEX idx_line_booking ON booking_line (booking_id);
 CREATE INDEX idx_line_product_window ON booking_line (product_id, starts_at, ends_at)

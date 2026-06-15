@@ -74,7 +74,7 @@ class PaymentApiTest {
     private static final String HA = HumanAuthorizationGate.HEADER_NAME;
     private static final String HA_OK = "human-confirmed-yes";
     private static final String STARTS_AT = "2026-08-01T15:00:00Z";
-    private static final String ENDS_AT   = "2026-08-03T11:00:00Z";
+    private static final String ENDS_AT   = "2026-08-02T11:00:00Z";   // 1 night → lineAmount == rate
     private static final long UNIT_PRICE  = 18_000L;
 
     // ── API-008 createPaymentLink ────────────────────────────────────────────

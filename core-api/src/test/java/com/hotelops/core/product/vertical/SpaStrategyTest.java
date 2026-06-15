@@ -87,6 +87,21 @@ class SpaStrategyTest extends AbstractDataJpaTest {
         assertThat(strategy.vertical()).isEqualTo(Vertical.SPA);
     }
 
+    @Test
+    void line_amount_is_base_times_quantity_with_no_nights_factor() {
+        SpaStrategy strategy = new SpaStrategy(productRepository);
+        ProductSpa spa = saveSpa(3);   // base price 5000
+
+        // Even across a multi-day window, spa never multiplies by nights — duration
+        // pricing is a Rooms concern (KNOWN_LIMITATION_ROOM_PRICING.md).
+        OffsetDateTime multiDayStart = OffsetDateTime.parse("2026-07-01T10:00:00Z");
+        OffsetDateTime multiDayEnd   = OffsetDateTime.parse("2026-07-03T10:00:00Z");
+
+        // 5000 × 2 = 10000, NOT × 2 nights.
+        assertThat(strategy.calculateLineAmount(spa.getId(), 2, multiDayStart, multiDayEnd))
+                .isEqualTo(10000L);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private ProductSpa saveSpa(int concurrentSlots) {

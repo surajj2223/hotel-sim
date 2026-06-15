@@ -8,7 +8,10 @@ import java.util.UUID;
 
 /**
  * API-006/007 line item — BookingLineResponse (WAVE0_02_OPENAPI.yaml).
- * unitPrice / lineAmount are MINOR UNITS; lineAmount == unitPrice * quantity.
+ * unitPrice / lineAmount are MINOR UNITS. unitPrice is the per-unit rate; lineAmount is the
+ * total line debt owned by the vertical strategy — unitPrice × quantity for verticals with
+ * no duration dimension, and unitPrice × quantity × nights for ROOM
+ * (see contracts/KNOWN_LIMITATION_ROOM_PRICING.md).
  *
  * WHK-016 (Slice S2, DRAFT amendment) — {@code revenuePosted} is a DERIVED, read-only
  * figure: the net revenue posted to the ledger for this line (sum of REVENUE less

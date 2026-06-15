@@ -103,7 +103,7 @@ class PaymentOrchestratorTxOrderingTest {
         mvc.perform(post("/bookings/" + bookingId + "/lines")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"productId\":\"" + productId + "\",\"startsAt\":\"2026-08-01T15:00:00Z\","
-                                + "\"endsAt\":\"2026-08-03T11:00:00Z\",\"quantity\":1}"))
+                                + "\"endsAt\":\"2026-08-02T11:00:00Z\",\"quantity\":1}"))   // 1 night → lineAmount == rate
                 .andExpect(status().isCreated());
         return bookingId;
     }

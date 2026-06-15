@@ -1,6 +1,10 @@
 # DECISION — ROOM line pricing corrected to rate × rooms × nights
 
-**Status:** PROPOSED (awaiting sign-off) · **Crosses frozen contracts — flagged, not self-fixed**
+**Status:** ACCEPTED · implemented on `claude/room-pricing-nights`. **Crossed frozen contracts —
+flagged & arbitrated, not self-fixed:** the additive `VerticalStrategy.calculateLineAmount`
+seam, and the frozen DB invariant **SCH-022 `chk_line_amount`** (relaxed via
+[RX-002](refactor-x/RX-002-line-amount-strategy-owned.md) + Flyway `V4`; see Freeze Ledger
+`WAVE0_00 §1b`).
 
 ## Defect
 `BookingLine.lineAmount` is defined as *the cost to the customer for that line*.
@@ -20,8 +24,8 @@ Room line debt = **`unitPrice × number_of_rooms × number_of_nights`**, where:
   `ChronoUnit.DAYS.between(startsAt.toLocalDate(), endsAt.toLocalDate())`.
   Chosen over raw-instant `DAYS.between` so cross-midnight stays count correctly and
   check-in/out times don't distort the count. (15:00→11:00 over Jul 1–4 = 3 ✓.)
-- **0-night room line → rejected** with a clear error (no silent £0 room). [CONFIRM:
-  reject vs. allow-as-day-use.]
+- **0-night room line → rejected** with a clear `IllegalArgumentException` (no silent £0
+  room). Resolved: **reject** (not allow-as-day-use).
 
 `unitPrice` is unchanged in meaning; only `lineAmount` is corrected. Spa/F&B are
 **not** night-multiplied — duration pricing is a Rooms concern and stays inside
@@ -36,6 +40,13 @@ Room line debt = **`unitPrice × number_of_rooms × number_of_nights`**, where:
    `unitPrice × quantity` and into the strategy, so each vertical owns whether duration
    applies (Option 3 — respects the strategy boundary). Additive to the interface, but
    the interface is a published seam.
+3. **Frozen DB invariant SCH-022 `chk_line_amount`** enforced
+   `line_amount = unit_price * quantity` at the database, which rejects any multi-night room
+   line under this correction. Discovered during implementation (this note's first draft
+   missed it). Flagged to the Desk arbiter and resolved by **relaxing** the constraint to a
+   positive no-under-count floor — `line_amount > 0 AND line_amount >= unit_price * quantity`
+   — via [RX-002](refactor-x/RX-002-line-amount-strategy-owned.md) and additive Flyway
+   `V4__line_amount_strategy_owned.sql`. `unit_price` was **not** repurposed (Trap A).
 
 ## Touch points
 - `VerticalStrategy` — add `long calculateLineAmount(productId, quantity, startsAt, endsAt)`.

@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.time.OffsetDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Overlap edge cases for {@link RoomStrategy#availableCapacity}.
@@ -85,6 +86,56 @@ class RoomStrategyTest extends AbstractDataJpaTest {
         assertThat(strategy.calculateUnitPrice(room.getId(), 1, T0, T1)).isEqualTo(10000L);
         assertThat(strategy.defaultCaptureMode()).isEqualTo(CaptureMode.MANUAL);
         assertThat(strategy.vertical()).isEqualTo(Vertical.ROOM);
+    }
+
+    // ── line amount = rate × rooms × nights (KNOWN_LIMITATION_ROOM_PRICING.md) ────
+
+    // Calendar-date nights: 15:00 → 11:00 across Jul 1–4 is 3 nights, check-in/out
+    // times do not distort the count.
+    private static final OffsetDateTime CHECK_IN  = OffsetDateTime.parse("2026-07-01T15:00:00Z");
+    private static final OffsetDateTime CHECK_OUT = OffsetDateTime.parse("2026-07-04T11:00:00Z");
+
+    @Test
+    void line_amount_multiplies_unit_price_by_nights() {
+        RoomStrategy strategy = new RoomStrategy(productRepository);
+        ProductRoom room = saveRoom(5);   // base price 10000
+
+        // 10000 × 1 room × 3 nights = 30000
+        assertThat(strategy.calculateLineAmount(room.getId(), 1, CHECK_IN, CHECK_OUT))
+                .isEqualTo(30000L);
+    }
+
+    @Test
+    void line_amount_multiplies_by_rooms_and_nights() {
+        RoomStrategy strategy = new RoomStrategy(productRepository);
+        ProductRoom room = saveRoom(5);   // base price 10000
+
+        // 10000 × 2 rooms × 3 nights = 60000
+        assertThat(strategy.calculateLineAmount(room.getId(), 2, CHECK_IN, CHECK_OUT))
+                .isEqualTo(60000L);
+    }
+
+    @Test
+    void line_amount_for_single_night_equals_rate_times_quantity() {
+        RoomStrategy strategy = new RoomStrategy(productRepository);
+        ProductRoom room = saveRoom(5);   // base price 10000
+
+        // T0 → T1 is Jul 1 → Jul 2 = 1 night, so the ×1 path stays at rate × quantity.
+        assertThat(strategy.calculateLineAmount(room.getId(), 1, T0, T1)).isEqualTo(10000L);
+    }
+
+    @Test
+    void zero_night_line_is_rejected() {
+        RoomStrategy strategy = new RoomStrategy(productRepository);
+        ProductRoom room = saveRoom(5);
+
+        // Same calendar date (day-use) → 0 nights → loud rejection, no silent £0 room.
+        OffsetDateTime sameDayIn  = OffsetDateTime.parse("2026-07-01T09:00:00Z");
+        OffsetDateTime sameDayOut = OffsetDateTime.parse("2026-07-01T17:00:00Z");
+
+        assertThatThrownBy(() -> strategy.calculateLineAmount(room.getId(), 1, sameDayIn, sameDayOut))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at least one night");
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

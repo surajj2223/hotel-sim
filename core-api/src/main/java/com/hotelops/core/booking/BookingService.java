@@ -104,7 +104,10 @@ public class BookingService {
         line.setEndsAt(endsAt);
         line.setQuantity(quantity);
         line.setUnitPrice(currentUnitPrice);
-        line.setLineAmount(currentUnitPrice * quantity);
+        // Line total is owned by the vertical strategy: rooms multiply by nights, other
+        // verticals stay unitPrice × quantity. Do NOT reintroduce a hardcoded multiply here
+        // (KNOWN_LIMITATION_ROOM_PRICING.md).
+        line.setLineAmount(strategy.calculateLineAmount(productId, quantity, startsAt, endsAt));
         line.setCurrency(product.getCurrency());
 
         lineRepository.save(line);

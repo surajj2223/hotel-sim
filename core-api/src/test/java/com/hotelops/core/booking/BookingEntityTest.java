@@ -101,7 +101,11 @@ class BookingEntityTest extends AbstractDataJpaTest {
     }
 
     @Test
-    void SCH_022_line_amount_check_rejects_wrong_amount() {
+    void SCH_022_line_amount_check_rejects_below_floor_amount() {
+        // RX-002: chk_line_amount relaxed to (line_amount > 0 AND line_amount >=
+        // unit_price * quantity) — line_amount is strategy-owned (rooms multiply by nights),
+        // so an amount ABOVE the floor is now valid. A value BELOW the no-under-count floor
+        // (here 9999 < 5000*2) must still be rejected.
         Booking b = bookingRepository.save(booking());
         ProductRoom product = productRepository.save(room());
         BookingLine line = new BookingLine();
@@ -112,7 +116,7 @@ class BookingEntityTest extends AbstractDataJpaTest {
         line.setEndsAt(OffsetDateTime.now().plusDays(1));
         line.setQuantity(2);
         line.setUnitPrice(5000L);
-        line.setLineAmount(99999L);   // wrong: should be 10000
+        line.setLineAmount(9999L);   // below the floor unit_price*quantity = 10000
         assertThatThrownBy(() -> lineRepository.saveAndFlush(line))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
