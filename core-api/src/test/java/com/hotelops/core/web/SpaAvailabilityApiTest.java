@@ -57,9 +57,9 @@ class SpaAvailabilityApiTest {
 
     @Test
     void spa_availability_reflects_committed_overlap() throws Exception {
-        // 1. Seed SPA product: concurrentSlots = 3.
+        // 1. Seed SPA product: concurrentSlots = 3, therapistGender set (preference target).
         ProductSpa spa = productService.createSpa(
-                "Swedish Massage 60", SPA_PRICE, "GBP", "MASSAGE_60", 60, null, SPA_SLOTS);
+                "Swedish Massage 60", SPA_PRICE, "GBP", "MASSAGE_60", 60, "FEMALE", SPA_SLOTS);
         UUID spaId = spa.getId();
 
         // 2. API-004 — no committed overlap: availableUnits == SPA_SLOTS.
@@ -78,6 +78,14 @@ class SpaAvailabilityApiTest {
         JsonNode roomAttrs = spaRow.path("roomAttributes");
         assertThat(roomAttrs.isNull() || roomAttrs.isMissingNode())
                 .as("SPA result carries no roomAttributes").isTrue();
+
+        // API-004 Slice A4 — SPA result carries vertical-specific spaAttributes.
+        JsonNode spaAttrs = spaRow.path("spaAttributes");
+        assertThat(spaAttrs.isObject()).as("SPA result carries spaAttributes").isTrue();
+        assertThat(spaAttrs.get("treatmentKind").asText()).isEqualTo("MASSAGE_60");
+        assertThat(spaAttrs.get("durationMinutes").asInt()).isEqualTo(60);
+        assertThat(spaAttrs.get("therapistGender").asText()).isEqualTo("FEMALE");
+        assertThat(spaAttrs.get("concurrentSlots").asInt()).isEqualTo(SPA_SLOTS);
 
         // 3. Book 1 slot: customer → folio → SPA line (quantity 1, same window).
         UUID customerId = uuid(mvc.perform(post("/customers")
@@ -121,6 +129,15 @@ class SpaAvailabilityApiTest {
         JsonNode roomRow = findProduct(roomResults, room.getId());
         assertThat(roomRow).as("ROOM product still reachable after SPA widening").isNotNull();
         assertThat(roomRow.get("availableUnits").asInt()).isEqualTo(1);
+
+        // API-004 Slice A4 backward-compat — ROOM still carries roomAttributes, spaAttributes null.
+        JsonNode roomRowAttrs = roomRow.path("roomAttributes");
+        assertThat(roomRowAttrs.isObject()).as("ROOM result still carries roomAttributes").isTrue();
+        assertThat(roomRowAttrs.get("floorBand").asText()).isEqualTo("LOW");
+        assertThat(roomRowAttrs.get("bedType").asText()).isEqualTo("DOUBLE");
+        JsonNode roomRowSpa = roomRow.path("spaAttributes");
+        assertThat(roomRowSpa.isNull() || roomRowSpa.isMissingNode())
+                .as("ROOM result carries no spaAttributes").isTrue();
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

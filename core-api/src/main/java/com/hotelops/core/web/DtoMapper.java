@@ -9,6 +9,7 @@ import com.hotelops.core.payment.Payment;
 import com.hotelops.core.payment.Refund;
 import com.hotelops.core.product.Product;
 import com.hotelops.core.product.ProductRoom;
+import com.hotelops.core.product.ProductSpa;
 import com.hotelops.core.web.dto.AvailabilityResult;
 import com.hotelops.core.web.dto.BookingLineResponse;
 import com.hotelops.core.web.dto.CustomerResponse;
@@ -54,13 +55,20 @@ public class DtoMapper {
      * by the caller via the vertical strategy (INV-003 read side), not derived here.
      */
     public AvailabilityResult toAvailabilityResult(Product product, long unitPrice, int availableUnits) {
-        AvailabilityResult.RoomAttributes attrs = null;
+        AvailabilityResult.RoomAttributes roomAttrs = null;
+        AvailabilityResult.SpaAttributes spaAttrs = null;
         if (product instanceof ProductRoom room) {
-            attrs = new AvailabilityResult.RoomAttributes(
+            roomAttrs = new AvailabilityResult.RoomAttributes(
                     room.getFloorBand(),
                     room.getBedType(),
                     room.isQuiet(),
                     room.getMaxOccupancy());
+        } else if (product instanceof ProductSpa spa) {
+            spaAttrs = new AvailabilityResult.SpaAttributes(
+                    spa.getTreatmentKind(),
+                    spa.getDurationMinutes(),
+                    spa.getTherapistGender(),
+                    spa.getConcurrentSlots());
         }
         return new AvailabilityResult(
                 product.getId(),
@@ -69,7 +77,8 @@ public class DtoMapper {
                 unitPrice,
                 product.getCurrency(),
                 availableUnits,
-                attrs);
+                roomAttrs,
+                spaAttrs);
     }
 
     /** Line with no ledger context — {@code revenuePosted} defaults to 0 (no postings supplied). */

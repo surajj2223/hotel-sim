@@ -609,6 +609,30 @@ components:
             maxOccupancy:
               type: integer
               example: 2
+        spaAttributes:
+          # AMENDMENT (Slice A4) FROZEN on Desk sign-off — additive, backward-compatible.
+          # Vertical-specific attributes for SPA products, mirroring roomAttributes for ROOM.
+          # Populated for SPA products, null for other verticals; roomAttributes stays null
+          # for SPA. Existing ROOM responses are byte-identical. See WAVE0_00 §1b
+          # (API-004 spaAttributes row).
+          type: object
+          nullable: true
+          properties:
+            treatmentKind:
+              type: string
+              example: MASSAGE_60
+            durationMinutes:
+              type: integer
+              example: 60
+            therapistGender:
+              type: string
+              nullable: true
+              description: Optional preference target for therapist-gender matching (charter §5).
+              example: FEMALE
+            concurrentSlots:
+              type: integer
+              description: Parallel capacity per slot (inventory figure).
+              example: 3
     BookingCreateRequest:
       type: object
       required:
@@ -1079,9 +1103,19 @@ x-requirements:
     acceptance: Returns availableUnits computed from ACTIVE committed lines via the vertical strategy
       registry; roomAttributes populated for ROOM products, null for other verticals; ROOM and SPA
       exercised (Slice A3).
+    amendment:
+      slice: A4
+      status: FROZEN on Desk sign-off (see WAVE0_00 §1b API-004 spaAttributes row)
+      change: 'Additive, backward-compatible — nullable `spaAttributes` object on
+        AvailabilityResult exposes SPA vertical-specific attributes (treatmentKind,
+        durationMinutes, therapistGender, concurrentSlots), mirroring roomAttributes for ROOM.
+        Populated for SPA products, null for other verticals; roomAttributes stays null for SPA.
+        Existing ROOM responses are byte-identical; no required-field change; existing clients
+        unaffected. Unblocks charter §5 therapist-gender preference matching over availability.'
     mapsTo:
     - SCH-010
     - SCH-011
+    - SCH-012
     - INV-003
   - id: API-005
     requirement: Open an empty folio for a customer.
