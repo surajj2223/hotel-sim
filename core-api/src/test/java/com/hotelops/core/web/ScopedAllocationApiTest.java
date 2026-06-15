@@ -84,7 +84,7 @@ class ScopedAllocationApiTest {
     // December window — distinct from PaymentApiTest (Aug), WebhookApiTest (Sep),
     // ImmediateCaptureApiTest (Oct) so per-booking ledger filtering is unambiguous.
     private static final String STARTS_AT = "2026-12-01T15:00:00Z";
-    private static final String ENDS_AT   = "2026-12-03T11:00:00Z";
+    private static final String ENDS_AT   = "2026-12-02T11:00:00Z";   // 1 night → room lineAmount == ROOM_PRICE
     private static final long ROOM_PRICE  = 180_000L;  // £1,800
     private static final long SPA_PRICE   =  20_000L;  // £200
 

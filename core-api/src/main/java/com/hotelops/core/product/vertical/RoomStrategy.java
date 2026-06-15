@@ -9,6 +9,7 @@ import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Component;
 
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 /**
@@ -55,6 +56,28 @@ public class RoomStrategy implements VerticalStrategy,
     public long calculateUnitPrice(UUID productId, int quantity,
                                    OffsetDateTime startsAt, OffsetDateTime endsAt) {
         return room(productId).getBasePrice();
+    }
+
+    /**
+     * Room line debt = per-night rate × number_of_rooms × number_of_nights.
+     *
+     * <p>Nights are a <b>calendar-date span</b>
+     * ({@code DAYS.between(startsAt.toLocalDate(), endsAt.toLocalDate())}) so cross-midnight
+     * stays count correctly and check-in/out times don't distort the count
+     * (e.g. 2026-07-01T15:00 → 2026-07-04T11:00 = 3 nights). A 0-night line (same calendar
+     * date) is rejected loudly — no silent £0 room. See
+     * {@code contracts/KNOWN_LIMITATION_ROOM_PRICING.md}.
+     */
+    @Override
+    public long calculateLineAmount(UUID productId, int quantity,
+                                    OffsetDateTime startsAt, OffsetDateTime endsAt) {
+        long nights = ChronoUnit.DAYS.between(startsAt.toLocalDate(), endsAt.toLocalDate());
+        if (nights < 1) {
+            throw new IllegalArgumentException(
+                    "Room line must span at least one night (startsAt=" + startsAt
+                            + ", endsAt=" + endsAt + ")");
+        }
+        return room(productId).getBasePrice() * quantity * nights;
     }
 
     @Override

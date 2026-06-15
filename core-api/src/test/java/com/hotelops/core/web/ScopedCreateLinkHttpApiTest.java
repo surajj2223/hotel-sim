@@ -80,7 +80,7 @@ class ScopedCreateLinkHttpApiTest {
     private static final String HA = HumanAuthorizationGate.HEADER_NAME;
     private static final String HA_OK = "human-confirmed-yes";
     private static final String STARTS_AT = "2027-01-01T15:00:00Z";
-    private static final String ENDS_AT   = "2027-01-03T11:00:00Z";
+    private static final String ENDS_AT   = "2027-01-02T11:00:00Z";   // 1 night → room lineAmount == ROOM_PRICE
     private static final long ROOM_PRICE  = 180_000L;
     private static final long SPA_PRICE   =  20_000L;
 

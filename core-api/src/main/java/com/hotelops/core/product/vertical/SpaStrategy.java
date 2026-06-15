@@ -57,6 +57,17 @@ public class SpaStrategy implements VerticalStrategy,
         return spa(productId).getBasePrice();
     }
 
+    /**
+     * Spa line debt = base price × quantity. No nights factor — duration pricing is a
+     * Rooms concern and must not leak into other verticals
+     * (see {@code contracts/KNOWN_LIMITATION_ROOM_PRICING.md}).
+     */
+    @Override
+    public long calculateLineAmount(UUID productId, int quantity,
+                                    OffsetDateTime startsAt, OffsetDateTime endsAt) {
+        return spa(productId).getBasePrice() * quantity;
+    }
+
     @Override
     public CaptureMode defaultCaptureMode() {
         return CaptureMode.IMMEDIATE;

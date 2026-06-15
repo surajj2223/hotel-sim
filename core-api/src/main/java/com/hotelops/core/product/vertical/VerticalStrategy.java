@@ -34,6 +34,18 @@ public interface VerticalStrategy {
     long calculateUnitPrice(UUID productId, int quantity, OffsetDateTime startsAt, OffsetDateTime endsAt);
 
     /**
+     * Total line debt (minor units) for the given quantity and window.
+     * Rooms multiply by nights; verticals without a duration dimension return
+     * unitPrice × quantity. Computed at write time alongside the INV-003 re-checks.
+     *
+     * <p>This is deliberately separate from {@link #calculateUnitPrice}: the unit price
+     * stays the per-unit rate (snapshotted to {@code line.unitPrice} and shown on the
+     * availability screen), while this method owns whether a duration dimension applies.
+     * See {@code contracts/KNOWN_LIMITATION_ROOM_PRICING.md}.
+     */
+    long calculateLineAmount(UUID productId, int quantity, OffsetDateTime startsAt, OffsetDateTime endsAt);
+
+    /**
      * Default capture mode for this vertical.
      * Per-payment, vertical-defaulted, overridable by the caller.
      * ENM-004: IMMEDIATE (e.g. F&B) or MANUAL (e.g. Rooms).

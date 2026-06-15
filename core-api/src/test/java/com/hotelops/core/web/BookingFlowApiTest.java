@@ -52,8 +52,12 @@ class BookingFlowApiTest {
 
     private static final String STARTS_AT = "2026-07-01T15:00:00Z";
     private static final String ENDS_AT   = "2026-07-03T11:00:00Z";
-    private static final long UNIT_PRICE  = 18_000L;   // pence
+    private static final long UNIT_PRICE  = 18_000L;   // per-night rate, pence
     private static final int ROOM_COUNT   = 2;
+    // Jul 1 → Jul 3 = 2 calendar nights; room line debt = rate × quantity × nights
+    // (KNOWN_LIMITATION_ROOM_PRICING.md). unitPrice stays the per-night rate.
+    private static final int NIGHTS       = 2;
+    private static final long LINE_AMOUNT = UNIT_PRICE * NIGHTS;   // 36_000
 
     @Test
     void book_a_room_end_to_end_plus_409_on_over_availability() throws Exception {
@@ -105,17 +109,18 @@ class BookingFlowApiTest {
                         .content(lineBody(productId, 1)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
-                .andExpect(jsonPath("$.totalAmount").value(UNIT_PRICE))
-                .andExpect(jsonPath("$.balance").value(UNIT_PRICE))           // balance == lineAmount
+                .andExpect(jsonPath("$.totalAmount").value(LINE_AMOUNT))
+                .andExpect(jsonPath("$.balance").value(LINE_AMOUNT))          // balance == lineAmount
                 .andExpect(jsonPath("$.lines.length()").value(1))
-                .andExpect(jsonPath("$.lines[0].lineAmount").value(UNIT_PRICE))
+                .andExpect(jsonPath("$.lines[0].lineAmount").value(LINE_AMOUNT))   // rate × 2 nights
+                .andExpect(jsonPath("$.lines[0].unitPrice").value(UNIT_PRICE))     // rate stays the per-night rate
                 .andExpect(jsonPath("$.lines[0].quantity").value(1));
 
         // 6. API-007 — read folio back; availability dropped by the booked quantity.
         mvc.perform(get("/bookings/" + bookingId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
-                .andExpect(jsonPath("$.balance").value(UNIT_PRICE));
+                .andExpect(jsonPath("$.balance").value(LINE_AMOUNT));
 
         JsonNode after = findProduct(node(mvc.perform(get("/availability")
                         .param("vertical", "ROOM")

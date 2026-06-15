@@ -4,6 +4,41 @@ Engineering changelog for the hotel-sim POC. Contract freeze/version history liv
 `WAVE0_0X` artifacts' own changelog sections — this file tracks implementation work that is
 not itself a contract change.
 
+## Fixed — ROOM line pricing: rate × rooms × nights
+
+ROOM line debt was computed as `unit_price × quantity` only, ignoring the stay length: a
+3-night room priced as one night, so a multi-night folio under-stated `totalAmount` /
+`balance` (the latent defect in `contracts/KNOWN_LIMITATION_ROOM_PRICING.md`). Corrected so a
+ROOM line's `lineAmount = unit_price × quantity × nights`, where `nights` is the calendar-date
+span `DAYS.between(startsAt.toLocalDate(), endsAt.toLocalDate())` (cross-midnight safe;
+check-in/out times don't distort the count). A 0-night room line is rejected loudly
+(`IllegalArgumentException`) — no silent £0 room.
+
+- **New** `VerticalStrategy.calculateLineAmount(productId, quantity, startsAt, endsAt)`
+  (Option 3 — the strategy owns the line total, so duration pricing lives in `RoomStrategy`
+  only). `RoomStrategy` multiplies by nights; `SpaStrategy` returns `base × quantity` (no
+  nights). `BookingService.addLine` now sets `lineAmount` from the strategy instead of the
+  hardcoded `unitPrice × quantity`.
+- **`unit_price` meaning is unchanged** — it stays the per-night rate, snapshotted to
+  `line.unitPrice` and returned by `calculateUnitPrice` for the availability screen. Nights
+  are NOT folded into the unit price.
+- **Crossed two frozen seams — flagged & arbitrated, not self-fixed:**
+  - The published Package-A `VerticalStrategy` interface gained `calculateLineAmount`
+    (additive).
+  - The frozen DB invariant **SCH-022 `chk_line_amount`** (`line_amount = unit_price *
+    quantity`) blocked multi-night persistence. Relaxed to a positive no-under-count floor
+    (`line_amount > 0 AND line_amount >= unit_price * quantity`) via additive Flyway
+    `V4__line_amount_strategy_owned.sql`, recorded as
+    `contracts/refactor-x/RX-002-line-amount-strategy-owned.md` and the Freeze Ledger
+    (`WAVE0_00 §1b`).
+- **Tests:** `RoomStrategyTest` (3-night = rate×3, multi-room = rate×3×rooms, 0-night
+  rejected, 1-night = rate); `SpaStrategyTest` (multi-day window still `base × quantity`, no
+  nights); `BookingEntityTest` (DB rejects below-floor `line_amount`); `BookingFlowApiTest`
+  (end-to-end 2-night room persists `lineAmount = rate × nights`, `unitPrice` stays the rate).
+  Payment/scoping/webhook fixtures use genuine 1-night windows (subject is payments, not
+  pricing) so `lineAmount == rate` and their assertions are unchanged. Full `core-api` suite:
+  131 passed, 0 failed, 0 skipped.
+
 ## Stage 2 · Feature 2 · Part 1C-a — `payments-sim` real endpoints self-emit webhooks
 
 Closes the money loop on the **real, always-on** request endpoints. Previously only the
