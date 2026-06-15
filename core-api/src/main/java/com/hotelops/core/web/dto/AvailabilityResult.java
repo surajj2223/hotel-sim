@@ -8,7 +8,9 @@ import java.util.UUID;
  * API-004 response item — AvailabilityResult (WAVE0_02_OPENAPI.yaml).
  *
  * unitPrice is MINOR UNITS (pence). availableUnits is the free count in the window after
- * ACTIVE committed lines (INV-003 read side). roomAttributes is nullable per the contract.
+ * ACTIVE committed lines (INV-003 read side). roomAttributes / spaAttributes are nullable per
+ * the contract: each is populated only for its own vertical (ROOM / SPA), null otherwise
+ * (API-004 Slice A4 amendment).
  */
 public record AvailabilityResult(
         UUID productId,
@@ -17,7 +19,8 @@ public record AvailabilityResult(
         long unitPrice,
         String currency,
         int availableUnits,
-        RoomAttributes roomAttributes
+        RoomAttributes roomAttributes,
+        SpaAttributes spaAttributes
 ) {
 
     /** Room attributes the operator/model judges on. */
@@ -26,6 +29,18 @@ public record AvailabilityResult(
             String bedType,
             boolean quiet,
             int maxOccupancy
+    ) {
+    }
+
+    /**
+     * SPA attributes the operator/model judges on (API-004 Slice A4). {@code therapistGender}
+     * is the optional preference target for therapist-gender matching (charter §5).
+     */
+    public record SpaAttributes(
+            String treatmentKind,
+            int durationMinutes,
+            String therapistGender,
+            int concurrentSlots
     ) {
     }
 }
