@@ -3,6 +3,7 @@ package com.hotelops.paymentssim.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hotelops.paymentssim.domain.PspPayment;
+import com.hotelops.paymentssim.domain.PspPaymentStatus;
 import com.hotelops.paymentssim.domain.PspRefundStatus;
 import com.hotelops.paymentssim.web.dto.ApiError;
 import com.hotelops.paymentssim.web.dto.RefundAckResponse;
@@ -20,8 +21,13 @@ class RefundApiTest extends AbstractApiTest {
         return url("/v1/payments/" + p.getPspReference() + "/refunds");
     }
 
+    // 1C-a: the real /refunds endpoint persists the PENDING child (tx1, minting a distinct
+    // refund pspReference) AND settles + fires the async REFUND webhook (tx2). The tx2 row
+    // flips land synchronously even though webhook delivery to the (unreachable) callbackUrl
+    // fails fast with no retry: the child becomes REFUNDED and the parent PARTIALLY_REFUNDED.
+    // The 202 ack still reports PENDING_REFUND (intent acceptance).
     @Test
-    void recordsRefundIntentMintsDistinctPspReference() {
+    void realRefundRequestSettlesAndMintsDistinctPspReference() {
         PspPayment parent = seedCaptured(70000, 54000);
 
         var response = rest.postForEntity(refundUrl(parent),
@@ -39,15 +45,22 @@ class RefundApiTest extends AbstractApiTest {
         assertThat(body.status()).isEqualTo(RefundAckResponse.PENDING_REFUND);
 
         var saved = refundRepository.findByRefundMerchantReference("MR-RF-01").orElseThrow();
-        assertThat(saved.getStatus()).isEqualTo(PspRefundStatus.PENDING);
+        assertThat(saved.getStatus()).isEqualTo(PspRefundStatus.REFUNDED);
         assertThat(saved.getAmount()).isEqualTo(6000L);
         assertThat(saved.getOriginalReference()).isEqualTo(parent.getPspReference());
         assertThat(saved.getPspReference()).isEqualTo(body.pspReference());
         assertThat(saved.getReason()).isEqualTo("guest complaint");
+
+        var reloadedParent = paymentRepository.findByPspReference(parent.getPspReference()).orElseThrow();
+        assertThat(reloadedParent.getStatus()).isEqualTo(PspPaymentStatus.PARTIALLY_REFUNDED);
+        assertThat(reloadedParent.getAmountRefunded()).isEqualTo(6000L);
     }
 
+    // The first refund settles synchronously (1C-a), so it counts against capturable as a
+    // settled (REFUNDED) amount rather than a pending one — the second refund is still
+    // rejected because captured − refunded leaves nothing.
     @Test
-    void pendingRefundsCountAgainstCapturable() {
+    void priorRefundsCountAgainstCapturable() {
         PspPayment parent = seedCaptured(70000, 54000);
         rest.postForEntity(refundUrl(parent),
                 entity(new RefundRequest(54000L, "MR-RF-full", null)), RefundAckResponse.class);

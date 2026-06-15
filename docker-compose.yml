@@ -79,9 +79,13 @@ services:
       SPRING_DATASOURCE_USERNAME: pspsim
       SPRING_DATASOURCE_PASSWORD: pspsim
       # PSP-016: callback URL points at core-api's WHK receiver (API-013, /webhooks/psp).
-      # Not yet exercised in 1A — no webhook dispatcher until Part 1C.
+      # 1C-a: the real /captures|/cancellations|/refunds endpoints now self-emit the
+      # settlement webhook asynchronously after commit — no /v1/test step needed.
       CORE_API_WEBHOOK_URL: http://core-api:8080/webhooks/psp
       PSP_WEBHOOK_SECRET: poc-psp-secret
+      # 1C-a: delay (ms) before the async settlement webhook fires. Default 0 = immediate.
+      # Bump (e.g. 3000) to make the AUTHORISED→CAPTURED out-of-band flip visible in a demo.
+      PSP_SIM_SETTLEMENT_DELAY_MS: "0"
     ports:
       - "8081:8081"
     healthcheck:
