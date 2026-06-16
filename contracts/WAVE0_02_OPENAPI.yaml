@@ -717,7 +717,7 @@ components:
           minLength: 3
           maxLength: 3
         revenuePosted:
-          # DRAFT AMENDMENT (Slice S2) pending Desk sign-off — additive, read-only, derived.
+          # FROZEN AMENDMENT (Slice S2) — see WAVE0_00 §1b — additive, read-only, derived.
           # Net revenue posted to the ledger for this line (sum of REVENUE minus REFUND_REVERSAL,
           # minor units). Makes WHK-016 scoped allocation HTTP-visible. Computed at assembly
           # from ledger_posting; no schema change. See WAVE0_00 §1b (API-008 lineCoverage row).
@@ -843,7 +843,7 @@ components:
 
             '
         lineCoverage:
-          # DRAFT AMENDMENT (Slice S2) pending Desk sign-off — additive, backward-compatible.
+          # FROZEN AMENDMENT (Slice S2) — see WAVE0_00 §1b — additive, backward-compatible.
           # Exposes WHK-016 scoped payment->line allocation over HTTP. Optional; when absent
           # the payment is folio-wide and the WHK-012 fill-by-line-order fallback applies
           # unchanged. When present, amounts MUST sum to `amount` (else 400). Core-side only —
@@ -1152,7 +1152,7 @@ x-requirements-stage2:
       '
     amendment:
       slice: S2
-      status: DRAFT pending Desk sign-off (NOT frozen — see WAVE0_00 §1b API-008 lineCoverage row)
+      status: FROZEN (Slice S2) — see WAVE0_00 §1b API-008 lineCoverage row
       change: 'Additive, backward-compatible — optional `lineCoverage` array on
         PaymentLinkCreateRequest exposes WHK-016 scoped payment->line allocation over HTTP.
         Omitted/empty preserves today''s folio-wide behaviour byte-identically (WHK-012).

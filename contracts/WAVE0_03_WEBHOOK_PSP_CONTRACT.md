@@ -52,7 +52,7 @@ Reference taxonomy (ENM-010): `shopperReference` (ours, opaque, stable), `mercha
 | WHK-013 | Outbox consumption is idempotent and correctly transactional: each event produces its postings at most once, even under concurrent ticks or retries (fixes GAP-2). | Concurrent processing test produces no duplicate postings. | SCH-060, GAP-2 |
 | WHK-014 | The webhook receiver endpoint is **not** human-gated (it is PSP→server, not operator→server), but is authenticated by a shared PSP signature/secret header. Operator-initiated writes that *trigger* PSP calls (capture/refund) are human-gated per `API-`/INV-007. | Webhook without valid signature → `401`; capture/refund without `X-Human-Auth` → `428`. | API-008..012, INV-007 |
 | WHK-015 | Completion is asynchronous (capture/cancel/refund return `202`; state + postings land on the webhook). `payments-sim` provides a test-only synchronous webhook-drive seam so end-to-end tests are deterministic. | Smoke test asserts final state + postings with no sleep/poll; production path stays async. See §6a. | API-010/011/012, §6a |
-| WHK-016 · **DRAFT** | **Scoped allocation, additive over WHK-012.** When a payment carries `payment_line` coverage rows, a `CAPTURE`/`REFUND` allocates the event amount across **exactly those lines**, scaled to their recorded coverage amounts (single rounding remainder → first covered line). Absent coverage rows, WHK-012 fill-by-line-order applies **unchanged**. A refund reverses against the **parent payment's** coverage when present (never re-derived from the booking). Coverage amounts must sum to the payment amount (else `400`). See §5.1. | Scoped capture posts one `REVENUE` row per covered line carrying that line's `vertical`; an unscoped capture reproduces the §5 worked examples byte-identically; coverage-sum mismatch → `400`. Worked proofs in §5.1. | SCH-022, WHK-012, **SCH-030** (new `payment_line`), GAP-1 |
+| WHK-016 | **Scoped allocation, additive over WHK-012.** When a payment carries `payment_line` coverage rows, a `CAPTURE`/`REFUND` allocates the event amount across **exactly those lines**, scaled to their recorded coverage amounts (single rounding remainder → first covered line). Absent coverage rows, WHK-012 fill-by-line-order applies **unchanged**. A refund reverses against the **parent payment's** coverage when present (never re-derived from the booking). Coverage amounts must sum to the payment amount (else `400`). See §5.1. | Scoped capture posts one `REVENUE` row per covered line carrying that line's `vertical`; an unscoped capture reproduces the §5 worked examples byte-identically; coverage-sum mismatch → `400`. Worked proofs in §5.1. | SCH-022, WHK-012, **SCH-030** (new `payment_line`), GAP-1 |
 
 ---
 
@@ -168,8 +168,9 @@ remainders (unlike pro-rata), so allocations always sum to the event amount.
 
 ## 5.1 Scoped allocation (WHK-016) — additive over WHK-012
 
-**Status: DRAFT (Stage 4 Slice 1).** Pending Desk sign-off; the Freeze Ledger (`WAVE0_00 §1b`)
-is authoritative for freeze state.
+**Status: FROZEN (Stage 4 Slice 1).** Signed off; recorded in the Freeze Ledger
+(`WAVE0_00 §1b`), which remains authoritative. Frozen-at: this reconciliation commit;
+implemented in bb9395c / af8c42e. Change only via a new WHK- amendment, never in place.
 
 WHK-012's fill-by-line-order answers "the guest paid for the lot" — one folio-wide payment,
 allocated top-down. It cannot represent a payment that settles *specific* lines: a £200 spa
@@ -294,7 +295,7 @@ PSP; PSP signature authenticates the *callback*.
 | ID | Built | Commit/PR | Proving test |
 |----|-------|-----------|--------------|
 | WHK-001..015 | — | — | — |
-| WHK-016 | DRAFT — see §1b (not yet frozen) | — | — |
+| WHK-016 | Scoped payment→line allocation + scoped refund; `payment_line` (V3, additive) | bb9395c, af8c42e (PR #22) | `ScopedAllocationApiTest`, `ScopedRevenueHttpApiTest`, `LedgerCorrectnessTest` |
 
 ## 10. Changelog
 
@@ -303,3 +304,4 @@ PSP; PSP signature authenticates the *callback*.
 | 0.1 | (draft) | Initial draft. Event vocabulary, envelope, transition table, per-line allocation (fill-by-line-order), two-layer idempotency, security boundary. Authored against existing payment/ledger code per `WAVE0_AUDIT`. |
 | 0.2 | (draft) | Added §6a + WHK-015: async completion (`202`, webhook-completed) recorded as a decided choice, with a test-only synchronous webhook-drive seam in `payments-sim` for deterministic end-to-end tests. Updated dependency line — `WAVE0_02` Stage 2 slice now drafted, freezes as a matched pair. |
 | 0.3 | 2026-06-14 | Added **WHK-016 (DRAFT)**: scoped payment→line allocation, additive over WHK-012, with new §5.1 and a requirements-table row. Resolved the §5 "Refund-reversal ordering note" flag by pointing it at WHK-016 (line-targeted refunds via the parent payment's coverage). No frozen WHK requirement text changed; WHK-012 fallback untouched. Pending Desk sign-off to freeze. |
+| 0.4 | 2026-06-17 | WHK-016 frozen post-implementation (§1c reconciliation); status line §5.1 DRAFT→FROZEN; §9 verification row filled (bb9395c/af8c42e). Freeze authoritative in `WAVE0_00 §1b`. |
