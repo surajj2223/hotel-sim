@@ -1,1109 +1,530 @@
 {
-	"info": {
-		"name": "hotel-sim · core-api (linear, real webhooks)",
-		"_postman_id": "a7e1c2d4-0000-4000-9000-hotelsim00001",
-		"description": "Single linear journey for hotel-sim. **Run top to bottom on the smoke profile.**\n\nFolders 00–03 are the booking spine (health → customer → availability → folio). From folder 04 onward, every payment state change is driven by a **real payments-sim trigger** — the sim mints `pspReference` and fires its own signed webhook back to core-api. **No webhooks are hand-fired on the happy path**, so there is exactly one `pspReference` and only the sim ever sets it; the folder-04 desync footgun is gone.\n\n**Prereq stack (real loop needs the test-trigger router reachable):**\n```\ndocker compose -f docker-compose.yml -f docker-compose.smoke.yml up -d\ndocker compose exec -T db psql -U hotelops -d hotelops < seed-products.sql\n```\n\n**Topology:** from your host you hit core-api at `{{baseUrl}}` (8080) and payments-sim at `{{pspBaseUrl}}` (8081). The sim calls core-api back over the docker-internal name `core-api:8080`, so the loop completes inside compose. `?sync=true` on every trigger dispatches the webhook inline — no sleeps; the next read reflects the new state.\n\nFolder 06 holds invariant probes (expected failures). Two of them POST a raw webhook on purpose: they test core-api's webhook **receiver** contract (bad signature; duplicate replay) for events the well-behaved sim will not produce. Those are receiver-contract probes, not state transitions.",
-		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-	},
-	"variable": [
-		{
-			"key": "baseUrl",
-			"value": "http://localhost:8080"
-		},
-		{
-			"key": "humanAuthToken",
-			"value": "operator-confirmed-poc-token",
-			"description": "INV-007 — any non-blank value passes in the POC; the point is the server demands it and the agent can't self-mint it."
-		},
-		{
-			"key": "productId",
-			"value": "11111111-1111-1111-1111-111111111111",
-			"description": "Deluxe King from seed-products.sql; overwritten by 02 Availability if you run it."
-		},
-		{
-			"key": "startsAt",
-			"value": "2026-07-01T15:00:00Z"
-		},
-		{
-			"key": "endsAt",
-			"value": "2026-07-03T11:00:00Z"
-		},
-		{
-			"key": "customerId",
-			"value": ""
-		},
-		{
-			"key": "bookingId",
-			"value": ""
-		},
-		{
-			"key": "paymentId",
-			"value": ""
-		},
-		{
-			"key": "merchantReference",
-			"value": ""
-		},
-		{
-			"key": "pspReference",
-			"value": "",
-			"description": "Minted by YOU acting as the PSP in the AUTHORISATION webhook; reused by CAPTURE."
-		},
-		{
-			"key": "amountRequested",
-			"value": ""
-		},
-		{
-			"key": "refundMerchantReference",
-			"value": ""
-		},
-		{
-			"key": "refundAmount",
-			"value": "5000"
-		},
-		{
-			"key": "pspBaseUrl",
-			"value": "http://localhost:8081"
-		},
-		{
-			"key": "pspApiKey",
-			"value": "poc-psp-secret"
-		},
-		{
-			"key": "paymentLinkId",
-			"value": ""
-		}
-	],
-	"item": [
-		{
-			"name": "00 · Health",
-			"item": [
-				{
-					"name": "Actuator health",
-					"request": {
-						"method": "GET",
-						"url": {
-							"raw": "{{baseUrl}}/actuator/health",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"actuator",
-								"health"
-							]
-						},
-						"description": "SCF gate — compose healthcheck asserts this reports UP. If this fails, nothing else matters."
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('UP', () => pm.expect(pm.response.json().status).to.eql('UP'));"
-								],
-								"type": "text/javascript"
-							}
-						}
-					]
-				}
-			]
-		},
-		{
-			"name": "01 · Customers & Preferences",
-			"item": [
-				{
-					"name": "API-001 · Create customer",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"fullName\": \"John Patel\",\n  \"email\": \"john.patel@example.com\",\n  \"phone\": \"+44 7700 900123\"\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/customers",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"customers"
-							]
-						},
-						"description": "INV-001: the server mints the opaque, immutable `shopperReference` (SHPR-…). You never supply it — note it in the response."
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('201 Created', () => pm.response.to.have.status(201));",
-									"const b = pm.response.json();",
-									"pm.test('shopperReference minted', () => pm.expect(b.shopperReference).to.match(/^SHPR-/));",
-									"pm.collectionVariables.set('customerId', b.id);"
-								],
-								"type": "text/javascript"
-							}
-						}
-					]
-				},
-				{
-					"name": "API-002 · Get customer",
-					"request": {
-						"method": "GET",
-						"url": {
-							"raw": "{{baseUrl}}/customers/{{customerId}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"customers",
-								"{{customerId}}"
-							]
-						},
-						"description": "Read-back; entities never cross the boundary — this is the CustomerResponse DTO."
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('200', () => pm.response.to.have.status(200));"
-								],
-								"type": "text/javascript"
-							}
-						}
-					]
-				},
-				{
-					"name": "API-003 · Upsert preference (floor=high)",
-					"request": {
-						"method": "PUT",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"value\": \"high\"\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/customers/{{customerId}}/preferences/floor",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"customers",
-								"{{customerId}}",
-								"preferences",
-								"floor"
-							]
-						},
-						"description": "SCH-004: one value per key — PUT semantics, repeatable. Preferences are cross-vertical and feed the MCP's preference-aware suggestion later (facts from the system, judgement from the model). Try `quiet=true`, `dietary=vegan` too."
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('200', () => pm.response.to.have.status(200));"
-								],
-								"type": "text/javascript"
-							}
-						}
-					]
-				}
-			]
-		},
-		{
-			"name": "02 · Availability",
-			"item": [
-				{
-					"name": "API-004 · Search ROOM availability",
-					"request": {
-						"method": "GET",
-						"url": {
-							"raw": "{{baseUrl}}/availability?vertical=ROOM&startsAt={{startsAt}}&endsAt={{endsAt}}&quantity=1",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"availability"
-							],
-							"query": [
-								{
-									"key": "vertical",
-									"value": "ROOM",
-									"description": "Stage 1: ROOM only; other verticals → 400 by design"
-								},
-								{
-									"key": "startsAt",
-									"value": "{{startsAt}}"
-								},
-								{
-									"key": "endsAt",
-									"value": "{{endsAt}}"
-								},
-								{
-									"key": "quantity",
-									"value": "1",
-									"description": "Validated ≥1; accepted for forward-compat, not yet a filter"
-								}
-							]
-						},
-						"description": "Pricing and availableUnits are computed by the RoomStrategy via the registry — none of that logic lives in the controller. `unitPrice` is minor units per night-equivalent. This is the read the agent will call freely pre-confirmation."
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('200', () => pm.response.to.have.status(200));",
-									"const r = pm.response.json();",
-									"pm.test('has results (did you run seed-products.sql?)', () => pm.expect(r.length).to.be.above(0));",
-									"if (r.length) pm.collectionVariables.set('productId', r[0].productId);"
-								],
-								"type": "text/javascript"
-							}
-						}
-					]
-				}
-			]
-		},
-		{
-			"name": "03 · Folio (Booking)",
-			"item": [
-				{
-					"name": "API-005 · Open empty folio",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"currency\": \"GBP\"\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/bookings",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"bookings"
-							]
-						},
-						"description": "Opens a PENDING folio, no lines, all amounts 0. One folio will eventually span verticals (room + spa + dinner) — Stage 4."
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('201', () => pm.response.to.have.status(201));",
-									"pm.collectionVariables.set('bookingId', pm.response.json().id);"
-								],
-								"type": "text/javascript"
-							}
-						}
-					]
-				},
-				{
-					"name": "API-006 · Add room line (revalidated write)",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"productId\": \"{{productId}}\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"endsAt\": \"{{endsAt}}\",\n  \"quantity\": 1\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/bookings/{{bookingId}}/lines",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"bookings",
-								"{{bookingId}}",
-								"lines"
-							]
-						},
-						"description": "INV-003: availability + price are re-checked atomically at write time — the core safety mechanism replacing holds. INV-004: response is the re-read folio with server-derived totals and a price snapshot on the line. If state moved since your availability read → 409 STATE_CONFLICT with current truth."
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('201', () => pm.response.to.have.status(201));",
-									"const f = pm.response.json();",
-									"pm.test('totals recomputed', () => pm.expect(f.totalAmount).to.be.above(0));",
-									"pm.collectionVariables.set('amountRequested', String(f.totalAmount));"
-								],
-								"type": "text/javascript"
-							}
-						}
-					]
-				},
-				{
-					"name": "API-007 · Get folio",
-					"request": {
-						"method": "GET",
-						"url": {
-							"raw": "{{baseUrl}}/bookings/{{bookingId}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"bookings",
-								"{{bookingId}}"
-							]
-						},
-						"description": "Folio with lines + amounts. Remember: 'paid' = balance == 0, never a boolean. Re-run this after each payment step to watch amountPaid / amountRefunded move."
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('200', () => pm.response.to.have.status(200));"
-								],
-								"type": "text/javascript"
-							}
-						}
-					]
-				}
-			]
-		},
-		{
-			"name": "04 · Payment lifecycle (real payments-sim webhooks)",
-			"description": "The full money loop, driven by the **real** sim endpoints. core-api requests; the sim authorises (customer-checkout stand-in) then SELF-EMITS its own signed CAPTURE/REFUND webhooks (1C-a) — no /v1/test settle steps. State is read back from core-api by polling after each async webhook lands. One pspReference, sim-owned end to end.",
-			"item": [
-				{
-					"name": "1 · API-008 · Create payment link (MANUAL, gated)",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							},
-							{
-								"key": "X-Human-Auth",
-								"value": "{{humanAuthToken}}"
-							}
-						],
-						"description": "core-api tx1 persists a PENDING payment + calls payments-sim (PSP-001) to mint paymentLinkId; tx2 stamps it. pspReference is null until the AUTHORISATION webhook.",
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"amount\": 18000,\n  \"currency\": \"GBP\",\n  \"captureMode\": \"MANUAL\"\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "{{baseUrl}}/bookings/{{bookingId}}/payments",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"bookings",
-								"{{bookingId}}",
-								"payments"
-							]
-						}
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"type": "text/javascript",
-								"exec": [
-									"pm.test('201 created', () => pm.response.to.have.status(201));",
-									"const p = pm.response.json();",
-									"pm.test('paymentLinkId minted by PSP', () => pm.expect(p.paymentLinkId).to.be.a('string').and.not.empty);",
-									"pm.test('pspReference null pre-auth', () => pm.expect(p.pspReference).to.be.null);",
-									"pm.collectionVariables.set('paymentId', p.id);",
-									"pm.collectionVariables.set('merchantReference', p.merchantReference);",
-									"pm.collectionVariables.set('paymentLinkId', p.paymentLinkId);",
-									"pm.collectionVariables.set('amountRequested', String(p.amountRequested));",
-									"// Clear any stale reference so nothing downstream can run on a leftover value.",
-									"pm.collectionVariables.set('pspReference', '');"
-								]
-							}
-						}
-					]
-				},
-				{
-					"name": "2 · [SIM] Customer authorises link (stand-in for pay-web checkout)",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"description": "Stand-in for the customer paying on a hosted checkout — pay-web is deferred (RX-001), so this is the ONE event with no real (non-test) trigger; it represents the customer, not an operator action. payments-sim authorises, mints pspReference, and (sync) posts the signed AUTHORISATION webhook to core-api inline. Capture / cancel / refund are now SELF-EMITTED by the real sim endpoints (1C-a) and need no /v1/test step. /v1/test needs no X-PSP-Api-Key and is reachable only under the smoke profile.",
-						"body": {
-							"mode": "raw",
-							"raw": "{}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "{{pspBaseUrl}}/v1/test/payment-links/{{paymentLinkId}}/authorise?sync=true",
-							"host": [
-								"{{pspBaseUrl}}"
-							],
-							"path": [
-								"v1",
-								"test",
-								"payment-links",
-								"{{paymentLinkId}}",
-								"authorise"
-							],
-							"query": [
-								{
-									"key": "sync",
-									"value": "true"
-								}
-							]
-						}
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"type": "text/javascript",
-								"exec": [
-									"pm.test('200 (sync) authorised', () => pm.response.to.have.status(200));",
-									"const r = pm.response.json();",
-									"pm.test('sim minted base62 pspReference', () => pm.expect(r.pspReference).to.match(/^PSP-[0-9A-Za-z]{16}$/));",
-									"// Authoritative capture of pspReference happens in step 3 from core-api's",
-									"// stamped state, which proves the webhook actually landed."
-								]
-							}
-						}
-					]
-				},
-				{
-					"name": "3 · API-009 · Get payment (expect AUTHORISED)",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"description": "Proves the AUTHORISATION webhook landed and transitioned core-api, and captures the single authoritative pspReference for all downstream steps.",
-						"url": {
-							"raw": "{{baseUrl}}/payments/{{paymentId}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"payments",
-								"{{paymentId}}"
-							]
-						}
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"type": "text/javascript",
-								"exec": [
-									"pm.test('200', () => pm.response.to.have.status(200));",
-									"const p = pm.response.json();",
-									"pm.test('status AUTHORISED after real webhook', () => pm.expect(p.status).to.eql('AUTHORISED'));",
-									"pm.test('pspReference stamped by the webhook', () => pm.expect(p.pspReference).to.match(/^PSP-[0-9A-Za-z]{16}$/));",
-									"// Use the reference core-api PERSISTED — exactly what it will send the sim on",
-									"// capture/cancel/refund. There is only ever this one value.",
-									"pm.collectionVariables.set('pspReference', p.pspReference);"
-								]
-							}
-						}
-					]
-				},
-				{
-					"name": "4 · API-010 · Request capture (gated, 202)",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							},
-							{
-								"key": "X-Human-Auth",
-								"value": "{{humanAuthToken}}"
-							}
-						],
-						"description": "core-api validates + calls payments-sim (PSP-002). 1C-a: the sim's real /captures endpoint records intent AND self-emits the CAPTURE webhook asynchronously after commit — no /v1/test settle step. The next step polls core-api until the webhook lands and revenue posts (capture, not auth, is the revenue event).",
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"amount\": 18000\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "{{baseUrl}}/payments/{{paymentId}}/capture",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"payments",
-								"{{paymentId}}",
-								"capture"
-							]
-						}
-					},
-					"event": [
-						{
-							"listen": "prerequest",
-							"script": {
-								"type": "text/javascript",
-								"exec": [
-									"const ref = pm.collectionVariables.get('pspReference') || '';",
-									"if (!/^PSP-[0-9A-Za-z]{16}$/.test(ref)) {",
-									"  throw new Error('pspReference \"' + ref + '\" not sim-minted — run steps 2-3 first on the smoke profile.');",
-									"}"
-								]
-							}
-						},
-						{
-							"listen": "test",
-							"script": {
-								"type": "text/javascript",
-								"exec": [
-									"pm.test('202 accepted (async request)', () => pm.response.to.have.status(202));"
-								]
-							}
-						}
-					]
-				},
-				{
-					"name": "5 · API-009 · Get payment (expect CAPTURED)",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/payments/{{paymentId}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"payments",
-								"{{paymentId}}"
-							]
-						}
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"type": "text/javascript",
-								"exec": [
-									"const b = pm.response.json();",
-									"pm.test('200', () => pm.response.to.have.status(200));",
-									"const __k = pm.info.requestName;",
-									"let __n = Number(pm.collectionVariables.get('poll:' + __k) || 0);",
-									"const __done = (b.status === 'CAPTURED');",
-									"if (__done || __n >= 30) {",
-									"  pm.collectionVariables.set('poll:' + __k, 0);",
-									"  pm.test(\"status CAPTURED (async self-emitted webhook landed)\", () => pm.expect(b.status === 'CAPTURED').to.eql(true));",
-									"} else {",
-									"  pm.collectionVariables.set('poll:' + __k, __n + 1);",
-									"  postman.setNextRequest(__k);",
-									"}"
-								]
-							}
-						}
-					]
-				},
-				{
-					"name": "6 · API-012 · Request refund (gated, 202)",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							},
-							{
-								"key": "X-Human-Auth",
-								"value": "{{humanAuthToken}}"
-							}
-						],
-						"description": "core-api persists a PENDING child refund (minting its own merchantReference, chaining originalReference → parent pspReference) and calls payments-sim (PSP-004). 1C-a: the sim's real /refunds endpoint self-emits the REFUND webhook asynchronously after commit — no /v1/test settle step. The final step polls until the reversal posts (refund pspReference stamped on WHK-009).",
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"amount\": {{refundAmount}},\n  \"reason\": \"guest goodwill — partial refund\"\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "{{baseUrl}}/payments/{{paymentId}}/refunds",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"payments",
-								"{{paymentId}}",
-								"refunds"
-							]
-						}
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"type": "text/javascript",
-								"exec": [
-									"pm.test('202 accepted', () => pm.response.to.have.status(202));",
-									"const r = pm.response.json();",
-									"pm.test('refund has its own merchantReference', () => pm.expect(r.merchantReference).to.be.a('string').and.not.empty);",
-									"pm.test('originalReference chains to parent psp', () => pm.expect(r.originalReference).to.eql(pm.collectionVariables.get('pspReference')));",
-									"pm.collectionVariables.set('refundMerchantReference', r.merchantReference);"
-								]
-							}
-						}
-					]
-				},
-				{
-					"name": "7 · API-009 · List booking payments (final state)",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"description": "Final read-back: the captured payment with its child refund, both stamped with real sim references.",
-						"url": {
-							"raw": "{{baseUrl}}/bookings/{{bookingId}}/payments",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"bookings",
-								"{{bookingId}}",
-								"payments"
-							]
-						}
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"type": "text/javascript",
-								"exec": [
-									"const arr = pm.response.json();",
-									"pm.test('200', () => pm.response.to.have.status(200));",
-									"const __k = pm.info.requestName;",
-									"let __n = Number(pm.collectionVariables.get('poll:' + __k) || 0);",
-									"const __pay = Array.isArray(arr) && arr.length === 1 ? arr[0] : null;",
-									"const __r = __pay && Array.isArray(__pay.refunds) && __pay.refunds.length === 1 ? __pay.refunds[0] : null;",
-									"const __done = !!(__pay && __pay.status === 'CAPTURED' && __r && /^PSP-[0-9A-Za-z]{16}$/.test(__r.pspReference || ''));",
-									"if (__done || __n >= 30) {",
-									"  pm.collectionVariables.set('poll:' + __k, 0);",
-									"  pm.test('one payment CAPTURED with one settled refund (reversal posted)', () => {",
-									"    pm.expect(arr).to.be.an('array').with.lengthOf(1);",
-									"    pm.expect(arr[0].status).to.eql('CAPTURED');",
-									"    pm.expect(arr[0].refunds).to.be.an('array').with.lengthOf(1);",
-									"    pm.expect(arr[0].refunds[0].pspReference).to.match(/^PSP-[0-9A-Za-z]{16}$/);",
-									"  });",
-									"} else {",
-									"  pm.collectionVariables.set('poll:' + __k, __n + 1);",
-									"  postman.setNextRequest(__k);",
-									"}"
-								]
-							}
-						}
-					]
-				}
-			]
-		},
-		{
-			"name": "05 · Alternate path: cancel authorisation (real webhook)",
-			"description": "Run on a FRESH payment that is AUTHORISED but not captured. Cancellation of an uncaptured auth posts NOTHING (auth ≠ revenue). The real sim /cancellations endpoint self-emits the CANCELLATION webhook (1C-a); core-api state is read back by polling.",
-			"item": [
-				{
-					"name": "1 · API-011 · Request cancellation (gated, 202)",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							},
-							{
-								"key": "X-Human-Auth",
-								"value": "{{humanAuthToken}}"
-							}
-						],
-						"description": "core-api validates + calls payments-sim (PSP-003). 1C-a: the sim's real /cancellations endpoint self-emits the CANCELLATION webhook asynchronously after commit — no /v1/test settle step. Cancelling an uncaptured auth posts NOTHING (auth ≠ revenue). The next step polls core-api until the webhook transitions the payment.",
-						"url": {
-							"raw": "{{baseUrl}}/payments/{{paymentId}}/cancel",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"payments",
-								"{{paymentId}}",
-								"cancel"
-							]
-						}
-					},
-					"event": [
-						{
-							"listen": "prerequest",
-							"script": {
-								"type": "text/javascript",
-								"exec": [
-									"const ref = pm.collectionVariables.get('pspReference') || '';",
-									"if (!/^PSP-[0-9A-Za-z]{16}$/.test(ref)) {",
-									"  throw new Error('pspReference \"' + ref + '\" not sim-minted — authorise a fresh payment first.');",
-									"}"
-								]
-							}
-						},
-						{
-							"listen": "test",
-							"script": {
-								"type": "text/javascript",
-								"exec": [
-									"pm.test('202 accepted', () => pm.response.to.have.status(202));"
-								]
-							}
-						}
-					]
-				},
-				{
-					"name": "2 · API-009 · Get payment (expect CANCELLED)",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/payments/{{paymentId}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"payments",
-								"{{paymentId}}"
-							]
-						}
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"type": "text/javascript",
-								"exec": [
-									"const b = pm.response.json();",
-									"pm.test('200', () => pm.response.to.have.status(200));",
-									"const __k = pm.info.requestName;",
-									"let __n = Number(pm.collectionVariables.get('poll:' + __k) || 0);",
-									"const __done = (b.status === 'CANCELLED');",
-									"if (__done || __n >= 30) {",
-									"  pm.collectionVariables.set('poll:' + __k, 0);",
-									"  pm.test(\"status CANCELLED (async self-emitted webhook landed)\", () => pm.expect(b.status === 'CANCELLED').to.eql(true));",
-									"} else {",
-									"  pm.collectionVariables.set('poll:' + __k, __n + 1);",
-									"  postman.setNextRequest(__k);",
-									"}"
-								]
-							}
-						}
-					]
-				}
-			]
-		},
-		{
-			"name": "06 · Invariant probes (expected failures)",
-			"description": "Each request here is SUPPOSED to fail — the tests assert the failure. This folder is the negative space of the contract: what the server refuses, and how loudly.",
-			"item": [
-				{
-					"name": "INV-003 · Over-availability add-line → 409 STATE_CONFLICT",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"productId\": \"{{productId}}\",\n  \"startsAt\": \"{{startsAt}}\",\n  \"endsAt\": \"{{endsAt}}\",\n  \"quantity\": 99\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/bookings/{{bookingId}}/lines",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"bookings",
-								"{{bookingId}}",
-								"lines"
-							]
-						},
-						"description": "Write-time revalidation failing loudly WITH current state — the body carries availableUnits so the caller (human or agent) can re-read and retry. This is the mechanism that makes holds unnecessary in the POC."
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('409', () => pm.response.to.have.status(409));",
-									"const b = pm.response.json();",
-									"pm.test('STATE_CONFLICT with current truth', () => { pm.expect(b.code).to.eql('STATE_CONFLICT'); pm.expect(b.currentState).to.have.property('availableUnits'); });"
-								],
-								"type": "text/javascript"
-							}
-						}
-					]
-				},
-				{
-					"name": "INV-007 · Capture without X-Human-Auth → 428",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"amount\": 100\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/payments/{{paymentId}}/capture",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"payments",
-								"{{paymentId}}",
-								"capture"
-							]
-						},
-						"description": "The server-side commit gate: safety lives in the server, not in the agent behaving well. 428 Precondition Required, code HUMAN_AUTH_REQUIRED. The same gate serves a ui click and an agent 'yes' — dual-channel confirmation."
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('428 Precondition Required', () => pm.response.to.have.status(428));",
-									"pm.test('HUMAN_AUTH_REQUIRED', () => pm.expect(pm.response.json().code).to.eql('HUMAN_AUTH_REQUIRED'));"
-								],
-								"type": "text/javascript"
-							}
-						}
-					]
-				},
-				{
-					"name": "WHK-014 · [receiver probe] Unsigned webhook → 401",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"eventId\": \"evt-unsigned\",\n  \"eventCode\": \"CAPTURE\",\n  \"idempotencyKey\": \"idem-unsigned\",\n  \"merchantReference\": \"{{merchantReference}}\",\n  \"pspReference\": \"{{pspReference}}\",\n  \"amount\": 1,\n  \"currency\": \"GBP\",\n  \"occurredAt\": \"2026-07-01T00:00:00Z\",\n  \"success\": true\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/webhooks/psp",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"webhooks",
-								"psp"
-							]
-						},
-						"description": "Receiver-contract probe (not a state transition). Posts a raw webhook with no X-PSP-Signature straight at core-api to prove the receiver rejects it (WHK-014). The real sim always signs, so this case can only be exercised by hand."
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('401', () => pm.response.to.have.status(401));",
-									"pm.test('INVALID_SIGNATURE', () => pm.expect(pm.response.json().code).to.eql('INVALID_SIGNATURE'));"
-								],
-								"type": "text/javascript"
-							}
-						}
-					]
-				},
-				{
-					"name": "WHK-005 · [receiver probe] Replay CAPTURE → duplicate=true",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							},
-							{
-								"key": "X-PSP-Signature",
-								"value": "sim-signature"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"eventCode\": \"CAPTURE\",\n  \"idempotencyKey\": \"{{idemKey}}\",\n  \"merchantReference\": \"{{merchantReference}}\",\n  \"pspReference\": \"{{pspReference}}\",\n  \"amount\": {{amountRequested}},\n  \"currency\": \"GBP\",\n  \"occurredAt\": \"{{occurredAt}}\",\n  \"success\": true\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/webhooks/psp",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"webhooks",
-								"psp"
-							]
-						},
-						"description": "Receiver-contract probe (not a state transition). Re-posts a CAPTURE webhook core-api already saw, to prove idempotent dedup (duplicate=true). The sim's state guard + stable idempotency key mean a double-trigger can't produce this, so the replay is hand-fired on purpose.\n\nRun AFTER folder 04 has captured (so merchantReference/pspReference/idemKey are set)."
-					},
-					"event": [
-						{
-							"listen": "prerequest",
-							"script": {
-								"type": "text/javascript",
-								"exec": [
-									"// Reconstruct the CAPTURE idempotency key the sim used: pspReference:CAPTURE:1",
-									"// (WHK-003 / PSP-011 format). Re-posting it must be flagged duplicate.",
-									"const psp = pm.collectionVariables.get('pspReference');",
-									"pm.collectionVariables.set('idemKey', psp + ':CAPTURE:1');",
-									"pm.collectionVariables.set('eventId', 'replay-' + psp);",
-									"pm.collectionVariables.set('occurredAt', new Date().toISOString());"
-								]
-							}
-						},
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('200', () => pm.response.to.have.status(200));",
-									"pm.test('duplicate flagged', () => pm.expect(pm.response.json().duplicate).to.be.true);"
-								],
-								"type": "text/javascript"
-							}
-						}
-					]
-				},
-				{
-					"name": "SCH-033 · Refund > captured → 409",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							},
-							{
-								"key": "X-Human-Auth",
-								"value": "{{humanAuthToken}}"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"amount\": 99999999,\n  \"reason\": \"probe: over-refund must be rejected\"\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/payments/{{paymentId}}/refunds",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"payments",
-								"{{paymentId}}",
-								"refunds"
-							]
-						},
-						"description": "Cannot refund more than captured (net of prior refunds). Run after the payment is CAPTURED."
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('409', () => pm.response.to.have.status(409));"
-								],
-								"type": "text/javascript"
-							}
-						}
-					]
-				},
-				{
-					"name": "Stage gate · SPA availability → 400 (by design)",
-					"request": {
-						"method": "GET",
-						"url": {
-							"raw": "{{baseUrl}}/availability?vertical=SPA&startsAt={{startsAt}}&endsAt={{endsAt}}",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"availability"
-							],
-							"query": [
-								{
-									"key": "vertical",
-									"value": "SPA"
-								},
-								{
-									"key": "startsAt",
-									"value": "{{startsAt}}"
-								},
-								{
-									"key": "endsAt",
-									"value": "{{endsAt}}"
-								}
-							]
-						},
-						"description": "The path and enum already speak all four verticals; only ROOM is wired. When Stage 3's SpaStrategy registers (remember the VerticalStrategyRegistration marker interface!), this exact request should start returning 200 — a nice built-in progress indicator."
-					},
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test('400 until Stage 3', () => pm.response.to.have.status(400));"
-								],
-								"type": "text/javascript"
-							}
-						}
-					]
-				}
-			]
-		}
-	]
+  "info": {
+    "name": "hotel-sim · Scoped Payment Flow (room-on-auth + spa-upfront)",
+    "_postman_id": "b7e1a0c2-9d4e-4c8a-9f2b-3a1c5e7d9f01",
+    "description": "Proves the load-bearing Stage-4 payment design:\n\n  * The ROOM line sits on a held MANUAL authorisation (a card imprint at\n    check-in) that is NEVER captured here — capture is the not-yet-built\n    checkout step.\n  * The SPA line is added AFTER the room auth and settled by its OWN,\n    SEPARATE, IMMEDIATE payment, scoped to the spa line via lineCoverage\n    (WHK-016 / payment_line).\n  * Scoped allocation lands the spa revenue on the SPA line only — the room\n    line's revenuePosted stays 0 (auth != revenue; ledger posts on capture).\n\nThis is the baseline the checkout/completeLine slice will build on. When that\nslice lands, the new completion call slots in after folder 05 and re-asserts\nthe room line's revenuePosted flips 0 -> 54000.\n\nPREREQUISITES\n  1. core-api on {{baseUrl}}, payments-sim on {{pspBaseUrl}} (docker compose up).\n  2. payments-sim running with the 'test' profile (so /v1/test/... is live —\n     it stands in for the deferred pay-web customer checkout).\n  3. Products seeded:\n       docker compose exec -T db psql -U hotelops -d hotelops < seed-products.sql\n     (provides ROOM 1111… £180/night and SPA 3333… Couples Massage £80.)\n\nRun the whole collection top-to-bottom (Collection Runner or one request at a\ntime). Variables chain automatically.\n\nMoney is minor units (pence). Room £180 x 3 nights = 54000. Spa £80 = 8000.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "pspBaseUrl", "value": "http://localhost:8081" },
+    { "key": "humanAuthToken", "value": "operator-confirmed-poc-token" },
+    { "key": "roomProductId", "value": "11111111-1111-1111-1111-111111111111" },
+    { "key": "spaProductId", "value": "33333333-3333-3333-3333-333333333333" },
+    { "key": "roomStartsAt", "value": "2026-07-01T15:00:00Z" },
+    { "key": "roomEndsAt", "value": "2026-07-04T11:00:00Z" },
+    { "key": "spaStartsAt", "value": "2026-07-02T14:00:00Z" },
+    { "key": "spaEndsAt", "value": "2026-07-02T15:00:00Z" },
+    { "key": "roomAmount", "value": "54000" },
+    { "key": "spaAmount", "value": "8000" },
+    { "key": "customerId", "value": "" },
+    { "key": "bookingId", "value": "" },
+    { "key": "roomLineId", "value": "" },
+    { "key": "spaLineId", "value": "" },
+    { "key": "roomPaymentId", "value": "" },
+    { "key": "roomPaymentLinkId", "value": "" },
+    { "key": "spaPaymentId", "value": "" },
+    { "key": "spaPaymentLinkId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "00 · Health",
+      "item": [
+        {
+          "name": "Actuator health (core-api up)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('core-api healthy', () => pm.response.to.have.status(200));",
+                  "pm.test('status UP', () => pm.expect(pm.response.json().status).to.eql('UP'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/actuator/health", "host": ["{{baseUrl}}"], "path": ["actuator", "health"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 · Setup — customer + folio + room line",
+      "item": [
+        {
+          "name": "1 · Create customer (John Patel)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const b = pm.response.json();",
+                  "pm.test('shopperReference minted', () => pm.expect(b.shopperReference).to.match(/^SHPR-/));",
+                  "pm.collectionVariables.set('customerId', b.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"John Patel\",\n  \"email\": \"john.patel@example.com\",\n  \"phone\": \"+44 7700 900123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/customers", "host": ["{{baseUrl}}"], "path": ["customers"] }
+          }
+        },
+        {
+          "name": "2 · Open empty folio (booking)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const f = pm.response.json();",
+                  "pm.test('booking PENDING with no lines', () => pm.expect(f.status).to.eql('PENDING'));",
+                  "pm.collectionVariables.set('bookingId', f.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"currency\": \"GBP\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/bookings", "host": ["{{baseUrl}}"], "path": ["bookings"] }
+          }
+        },
+        {
+          "name": "3 · Add ROOM line (3 nights, £540)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const f = pm.response.json();",
+                  "pm.test('booking now CONFIRMED', () => pm.expect(f.status).to.eql('CONFIRMED'));",
+                  "const room = f.lines.find(l => l.productId === pm.collectionVariables.get('roomProductId'));",
+                  "pm.test('room line present', () => pm.expect(room).to.be.an('object'));",
+                  "pm.test('room line is £540 (54000)', () => pm.expect(room.lineAmount).to.eql(54000));",
+                  "pm.test('room line ACTIVE', () => pm.expect(room.status).to.eql('ACTIVE'));",
+                  "pm.test('room line revenuePosted 0 (nothing settled yet)', () => pm.expect(room.revenuePosted).to.eql(0));",
+                  "pm.collectionVariables.set('roomLineId', room.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": \"{{roomProductId}}\",\n  \"startsAt\": \"{{roomStartsAt}}\",\n  \"endsAt\": \"{{roomEndsAt}}\",\n  \"quantity\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}/lines",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}", "lines"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 · Room on a held auth (MANUAL, never captured here)",
+      "item": [
+        {
+          "name": "1 · Create ROOM payment link (MANUAL, scoped to room line)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const p = pm.response.json();",
+                  "pm.test('captureMode MANUAL', () => pm.expect(p.captureMode).to.eql('MANUAL'));",
+                  "pm.test('paymentLinkId minted by PSP', () => pm.expect(p.paymentLinkId).to.be.a('string').and.not.empty);",
+                  "pm.test('pspReference null pre-auth', () => pm.expect(p.pspReference).to.be.null);",
+                  "pm.collectionVariables.set('roomPaymentId', p.id);",
+                  "pm.collectionVariables.set('roomPaymentLinkId', p.paymentLinkId);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Human-Auth", "value": "{{humanAuthToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 54000,\n  \"currency\": \"GBP\",\n  \"captureMode\": \"MANUAL\",\n  \"lineCoverage\": [\n    { \"bookingLineId\": \"{{roomLineId}}\", \"amount\": 54000 }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}", "payments"]
+            }
+          }
+        },
+        {
+          "name": "2 · [SIM] Customer authorises room link (pay-web stand-in)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 (sync) authorised', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test('sim minted base62 pspReference', () => pm.expect(r.pspReference).to.match(/^PSP-[0-9A-Za-z]{16}$/));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{pspBaseUrl}}/v1/test/payment-links/{{roomPaymentLinkId}}/authorise?sync=true",
+              "host": ["{{pspBaseUrl}}"],
+              "path": ["v1", "test", "payment-links", "{{roomPaymentLinkId}}", "authorise"],
+              "query": [{ "key": "sync", "value": "true" }]
+            }
+          }
+        },
+        {
+          "name": "3 · Get room payment — expect AUTHORISED (held, not captured)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json();",
+                  "pm.test('status AUTHORISED after real webhook', () => pm.expect(p.status).to.eql('AUTHORISED'));",
+                  "pm.test('pspReference stamped by webhook', () => pm.expect(p.pspReference).to.match(/^PSP-[0-9A-Za-z]{16}$/));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/payments/{{roomPaymentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "{{roomPaymentId}}"]
+            }
+          }
+        },
+        {
+          "name": "4 · Get folio — auth secured, NOTHING captured",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const f = pm.response.json();",
+                  "pm.test('amountAuthorised == 54000 (room hold secured)', () => pm.expect(f.amountAuthorised).to.eql(54000));",
+                  "pm.test('amountPaid == 0 (auth != revenue)', () => pm.expect(f.amountPaid).to.eql(0));",
+                  "const room = f.lines.find(l => l.id === pm.collectionVariables.get('roomLineId'));",
+                  "pm.test('room line revenuePosted STILL 0', () => pm.expect(room.revenuePosted).to.eql(0));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 · Spa added later (the gap opens)",
+      "item": [
+        {
+          "name": "1 · Add SPA line (£80) AFTER the room auth",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const f = pm.response.json();",
+                  "const spa = f.lines.find(l => l.productId === pm.collectionVariables.get('spaProductId'));",
+                  "pm.test('spa line present', () => pm.expect(spa).to.be.an('object'));",
+                  "pm.test('spa line is £80 (8000)', () => pm.expect(spa.lineAmount).to.eql(8000));",
+                  "pm.test('spa line revenuePosted 0 (unpaid)', () => pm.expect(spa.revenuePosted).to.eql(0));",
+                  "pm.collectionVariables.set('spaLineId', spa.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": \"{{spaProductId}}\",\n  \"startsAt\": \"{{spaStartsAt}}\",\n  \"endsAt\": \"{{spaEndsAt}}\",\n  \"quantity\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}/lines",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}", "lines"]
+            }
+          }
+        },
+        {
+          "name": "2 · Get folio — total grows, auth does NOT (the gap)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const f = pm.response.json();",
+                  "pm.test('totalAmount == 62000 (room 540 + spa 80)', () => pm.expect(f.totalAmount).to.eql(62000));",
+                  "pm.test('amountAuthorised STILL 54000 (spa uncovered — the gap)', () => pm.expect(f.amountAuthorised).to.eql(54000));",
+                  "pm.test('balance == 62000 (nothing captured)', () => pm.expect(f.balance).to.eql(62000));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 · Settle spa upfront — own IMMEDIATE scoped charge",
+      "item": [
+        {
+          "name": "1 · Create SPA payment (IMMEDIATE, scoped to spa line)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const p = pm.response.json();",
+                  "pm.test('captureMode IMMEDIATE', () => pm.expect(p.captureMode).to.eql('IMMEDIATE'));",
+                  "pm.test('separate payment from the room', () => pm.expect(p.id).to.not.eql(pm.collectionVariables.get('roomPaymentId')));",
+                  "pm.collectionVariables.set('spaPaymentId', p.id);",
+                  "pm.collectionVariables.set('spaPaymentLinkId', p.paymentLinkId);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Human-Auth", "value": "{{humanAuthToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 8000,\n  \"currency\": \"GBP\",\n  \"captureMode\": \"IMMEDIATE\",\n  \"lineCoverage\": [\n    { \"bookingLineId\": \"{{spaLineId}}\", \"amount\": 8000 }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}", "payments"]
+            }
+          }
+        },
+        {
+          "name": "2 · [SIM] Customer pays spa link (IMMEDIATE → auth+capture chain)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 (sync)', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test('sim minted pspReference', () => pm.expect(r.pspReference).to.match(/^PSP-[0-9A-Za-z]{16}$/));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{pspBaseUrl}}/v1/test/payment-links/{{spaPaymentLinkId}}/authorise?sync=true",
+              "host": ["{{pspBaseUrl}}"],
+              "path": ["v1", "test", "payment-links", "{{spaPaymentLinkId}}", "authorise"],
+              "query": [{ "key": "sync", "value": "true" }]
+            }
+          }
+        },
+        {
+          "name": "3 · Get spa payment — expect CAPTURED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json();",
+                  "pm.test('spa payment CAPTURED (IMMEDIATE settled)', () => pm.expect(p.status).to.eql('CAPTURED'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/payments/{{spaPaymentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "{{spaPaymentId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 · PROOF — scoped allocation landed on the spa line only",
+      "item": [
+        {
+          "name": "1 · Get folio — spa settled, room still just held",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const f = pm.response.json();",
+                  "const room = f.lines.find(l => l.id === pm.collectionVariables.get('roomLineId'));",
+                  "const spa  = f.lines.find(l => l.id === pm.collectionVariables.get('spaLineId'));",
+                  "",
+                  "// THE PROOF: spa revenue went to the SPA line, not the room line that sorts first.",
+                  "pm.test('SPA line revenuePosted == 8000 (settled)', () => pm.expect(spa.revenuePosted).to.eql(8000));",
+                  "pm.test('ROOM line revenuePosted == 0 (held auth, not captured)', () => pm.expect(room.revenuePosted).to.eql(0));",
+                  "",
+                  "// Folio rollups corroborate.",
+                  "pm.test('amountPaid == 8000 (only the spa captured)', () => pm.expect(f.amountPaid).to.eql(8000));",
+                  "pm.test('amountAuthorised == 54000 (room hold intact)', () => pm.expect(f.amountAuthorised).to.eql(54000));",
+                  "pm.test('balance == 54000 (room still owed)', () => pm.expect(f.balance).to.eql(54000));",
+                  "pm.test('booking still CONFIRMED (no completion yet)', () => pm.expect(f.status).to.eql('CONFIRMED'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 · Guardrail probes (expected failures)",
+      "item": [
+        {
+          "name": "Payment without X-Human-Auth → rejected (gate)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('rejected without human-auth (4xx)', () => pm.expect(pm.response.code).to.be.oneOf([401, 428]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 8000,\n  \"currency\": \"GBP\",\n  \"captureMode\": \"IMMEDIATE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}", "payments"]
+            }
+          }
+        },
+        {
+          "name": "lineCoverage not summing to amount → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('400 — coverage must sum to amount', () => pm.response.to.have.status(400));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Human-Auth", "value": "{{humanAuthToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 8000,\n  \"currency\": \"GBP\",\n  \"captureMode\": \"IMMEDIATE\",\n  \"lineCoverage\": [\n    { \"bookingLineId\": \"{{spaLineId}}\", \"amount\": 5000 }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}", "payments"]
+            }
+          }
+        }
+      ]
+    }
+  ]
 }
