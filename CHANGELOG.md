@@ -4,6 +4,14 @@ Engineering changelog for the hotel-sim POC. Contract freeze/version history liv
 `WAVE0_0X` artifacts' own changelog sections — this file tracks implementation work that is
 not itself a contract change.
 
+## Changed — WHK-016 / API-008 scoped allocation frozen (governance reconciliation)
+
+Recorded in the Freeze Ledger (`WAVE0_00 §1b`) that WHK-016 (scoped payment→line ledger
+allocation) and the API-008 `lineCoverage` / `revenuePosted` amendment (Slice S2) are
+**FROZEN · DONE** — closing the §1c lapse where merged code (PRs #22–#24) and the runnable
+Postman folio proof (`9e7476e`) depended on artifacts still listed DRAFT. Docs/contract
+markers only; no behaviour change. Impl: bb9395c, af8c42e, 7674e63, c2ea71f.
+
 ## Fixed — ROOM line pricing: rate × rooms × nights
 
 ROOM line debt was computed as `unit_price × quantity` only, ignoring the stay length: a
