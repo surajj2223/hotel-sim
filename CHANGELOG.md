@@ -4,6 +4,29 @@ Engineering changelog for the hotel-sim POC. Contract freeze/version history liv
 `WAVE0_0X` artifacts' own changelog sections — this file tracks implementation work that is
 not itself a contract change.
 
+## Changed — Docs reconciliation: Stage↔Wave mapping made explicit
+
+Brought the narrative docs into agreement with shipped reality after the `stage-2` tag
+(`f1043b1`). Stages now live *inside* Wave 1 (Waves = coarse phase; Stages = fine-grained
+build progress): Wave 1 is delivered as a Stage march — Stage 1 (book a room) and Stage 2
+(get paid — money loop, SPA availability, scoped cross-vertical allocation) complete; Stages
+3–8 remain. The single authoritative status source remains the Freeze Ledger
+(`WAVE0_00 §1b`); narrative docs defer to it.
+
+- **`HS-08` (`08-delivery-plan.md` + `.html`):** corrected the Wave 0 table —
+  `WAVE0_03_WEBHOOK_PSP_CONTRACT.md` **Deferred → Frozen** (it is FROZEN and fully
+  implemented — the money loop); added a "Wave 1 delivery — Stage reality" section and
+  annotated Tracks A–F as plan-of-record vs. actual linear-Stage execution; logged the
+  drift correction; bumped to v0.2.
+- **`README.md`:** Stage-2 framing on the status banner / head-body + projects tables;
+  corrected the stale "ROOM only / 400 by design" availability claim (SPA availability
+  shipped, Slice A3/A4 `spaAttributes`).
+- **`docs/RUNNING.md`:** corrected the stale SPA-400 claim and the stale "outbound seam not
+  wired" caveat (the `core-api → payments-sim` loop is live, PSP-001..017); noted scoped
+  `lineCoverage` on payment-link creation and derived `revenuePosted` on folio reads.
+
+Docs only — no behaviour change, no contract/source/schema edits, no tag changes.
+
 ## Changed — WHK-016 / API-008 scoped allocation frozen (governance reconciliation)
 
 Recorded in the Freeze Ledger (`WAVE0_00 §1b`) that WHK-016 (scoped payment→line ledger

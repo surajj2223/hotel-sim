@@ -4,10 +4,10 @@
 |------------------|--------------------------------------------------------------|
 | **ID**           | HS-08                                                        |
 | **Title**        | Delivery Plan & Waves                                        |
-| **Version**      | 0.1                                                          |
+| **Version**      | 0.2                                                          |
 | **Contract Status** | Frozen                                                    |
-| **Build Status** | In Progress                                                  |
-| **Date**         | 2026-06-10                                                   |
+| **Build Status** | In Progress — Wave 1 @ Stage 2 (tagged `stage-2`); see Stage map below |
+| **Date**         | 2026-06-17                                                   |
 | **Owner**        | Integration Owner                                            |
 | **Freezes**      | Wave 0 / 1 / 2 structure · Tracks A–F · Integration owner role · Gate conditions |
 
@@ -33,7 +33,7 @@ coordinating with each other.
 | `WAVE0_00_OVERVIEW.md` | How to use the set; freeze rule; change protocol | Frozen |
 | `WAVE0_01_SCHEMA.sql` | Postgres DDL — all tables, types, constraints, indexes; enum/glossary | Frozen |
 | `WAVE0_02_OPENAPI.yaml` | `core-api` HTTP contract — every read/write endpoint, DTOs, error envelope | Frozen |
-| `WAVE0_03_WEBHOOK_PSP_CONTRACT.md` | `payments-sim` event vocabulary, payloads, idempotency; `core-api` consumer rules | Deferred |
+| `WAVE0_03_WEBHOOK_PSP_CONTRACT.md` | `payments-sim` event vocabulary, payloads, idempotency; `core-api` consumer rules | Frozen |
 | `WAVE0_04_SCAFFOLD.md` | Repo layout, docker-compose, health checks, run instructions | Frozen |
 
 **Gate conditions (all must be met before Wave 1 starts):**
@@ -60,6 +60,26 @@ day one; B–F then run flat out against those interfaces and the frozen Wave 0 
 | **F** | `ops-web` — complete console, built against the OpenAPI mock. | `WAVE0_02_OPENAPI.yaml`, HS-05 |
 
 **Integration owner** holds `docker-compose` and the end-to-end smoke test throughout Wave 1.
+
+> **Plan-of-record vs. actual execution.** The Tracks A–F table above is the *original
+> plan* and is retained as such. In practice, execution was sequenced as a linear Stage
+> march (Stages 1..8) rather than flat-parallel tracks. The Stage reality is below.
+
+---
+
+## Wave 1 delivery — Stage reality
+
+Wave 1 (build the body) is delivered as a linear Stage march, not flat-parallel Tracks A–F.
+The single authoritative status source remains the Freeze Ledger (`WAVE0_00_OVERVIEW.md
+§1b`); this section is a reading aid, not a competing status.
+
+| Stage | Scope | Status |
+|-------|-------|--------|
+| **Stage 1** | Book a room (no payments). | ✅ Merged. |
+| **Stage 2** | Get paid: payment links, async webhook-driven capture/cancel/refund, ledger posts on capture, scoped cross-vertical allocation (WHK-016), SPA vertical + availability. | ✅ Closed, tagged `stage-2`. |
+| **Stages 3–8** | Remaining body work — further verticals, cross-vertical depth, operational reads, F&B + Events. | ⏳ Not yet built. |
+
+**Wave 2 (MCP)** is unchanged and still future.
 
 ---
 
@@ -112,4 +132,4 @@ retired, marked `RETIRED` and never reused. Briefs, commits, PRs, and tests refe
 
 | Date | Clause | Change | Reason | Arbitrated |
 |------|--------|--------|--------|------------|
-| —    | —      | No drift recorded. | — | — |
+| 2026-06-17 | HS-08 Wave 0 table — `WAVE0_03` status | Deferred → Frozen | Doc was stale; `WAVE0_03` is FROZEN and fully implemented (the money loop) per `WAVE0_00 §1b`. Docs conform to the ledger, not vice-versa. | Yes |
