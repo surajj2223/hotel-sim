@@ -4,10 +4,13 @@ A proof-of-concept multi-vertical hotel operations system, built to demonstrate 
 complete, conventional **headful** system can later be made **headless** — via an additive
 MCP layer — without rebuilding anything underneath.
 
-> **Status:** Wave 0 (contracts) is frozen. Wave 1 is in progress: `core-api` and a
-> standalone `payments-sim` PSP are built and talk to each other over real HTTP +
-> signed webhooks. The MCP server, `ops-web`, and a richer customer checkout are not
-> built yet. See [What actually runs today](#what-actually-runs-today) and
+> **Status:** Wave 0 (contracts) is frozen. Wave 1 is in progress — **Stage 2 complete**
+> (tagged `stage-2`); Stages 3–8 remain. `core-api` and a standalone `payments-sim` PSP
+> are built and talk to each other over real HTTP + signed webhooks. The MCP server,
+> `ops-web`, and a richer customer checkout are not built yet. Wave 1 is delivered in
+> Stages — see [Delivery Waves](#delivery-waves) and
+> [HS-08](docs/system-design/prd/08-delivery-plan.md). See
+> [What actually runs today](#what-actually-runs-today) and
 > [`docs/RUNNING.md`](docs/RUNNING.md) for the ground truth — this README also describes
 > the intended end-state, which is clearly marked where it differs.
 
@@ -27,7 +30,7 @@ console already uses. **No capability may exist solely for the agent.**
 
 | Layer | What it is | Built? |
 |---|---|---|
-| **Body** — `core-api` | All logic, rules, and state. The single source of truth. | ✅ Wave 1 in progress |
+| **Body** — `core-api` | All logic, rules, and state. The single source of truth. | ✅ Built — Wave 1 @ Stage 2 (money loop, SPA, scoped allocation shipped; `stage-2` tag) |
 | **Head 1 (headful)** — `ops-web` | A complete standalone operations console. | ⏳ Not yet built |
 | **Head 2 (headless)** — MCP server | A thin tool-wrapper over the same `core-api` endpoints. | ⏳ Wave 2 |
 
@@ -59,7 +62,7 @@ were retired during Feature 2 planning — see
 | `/customers` | POST | Create a customer (server mints `shopperReference`) |
 | `/customers/{id}` | GET | Fetch one customer |
 | `/customers/{id}/preferences/{key}` | PUT | Upsert one preference value |
-| `/availability` | GET | Availability + price (**ROOM only** today; other verticals return 400 by design) |
+| `/availability` | GET | Availability + price; resolves any registered vertical (ROOM and SPA wired — SPA returns `spaAttributes`; FNB/EVENT return 400 until registered) |
 | `/bookings` | POST | Open an empty folio for a customer |
 | `/bookings/{id}/lines` | POST | Add a line (revalidates availability + price, recomputes totals) |
 | `/bookings/{id}` | GET | Read the folio with lines and derived amounts |
@@ -93,8 +96,8 @@ the POC — not cryptographically enforced). Inbound webhooks are authenticated 
 
 Four sellable verticals managed from a single system:
 
-- **Rooms** — room/night bookings *(only vertical wired end-to-end today)*
-- **Spa** — therapist and treatment time slots
+- **Rooms** — room/night bookings *(wired end-to-end)*
+- **Spa** — therapist and treatment time slots *(availability wired end-to-end — Stage 2; returns `spaAttributes`)*
 - **F&B** — restaurant covers per service period
 - **Events** — capacity-limited experiences (e.g. city tours, horse rides)
 
@@ -102,8 +105,10 @@ Every vertical is the same thing at the domain level: a bookable resource with c
 over time, sold to a customer, paid for, and posted to a ledger. Vertical-specific
 behaviour (availability, pricing, payment capture mode) lives in per-vertical **strategy**
 classes — not in parallel silos. The `Product` hierarchy (`ProductRoom`, `ProductSpa`,
-`ProductFnb`, `ProductEvent`) already exists; only `RoomStrategy` is registered so far,
-which is why non-ROOM availability returns 400 by design.
+`ProductFnb`, `ProductEvent`) already exists; `RoomStrategy` and `SpaStrategy` are
+registered, and `/availability` resolves any registered vertical via
+`VerticalStrategyRegistry` (SPA returns `spaAttributes`). FNB/EVENT return 400 until their
+strategies register.
 
 ---
 
@@ -226,8 +231,8 @@ Representative agent utterances:
 
 | Project | Stack | Role | State |
 |---|---|---|---|
-| `core-api` | Spring Boot 3.x, Java 21 | The body — domain, persistence, payment orchestration, ledger | Built (Wave 1) |
-| `payments-sim` | Spring Boot 3.x, Java 21 | Stateful fake PSP: mints references, persists state, fires signed webhooks | Built (Wave 1) |
+| `core-api` | Spring Boot 3.x, Java 21 | The body — domain, persistence, payment orchestration, ledger | Built (Wave 1 @ Stage 2) |
+| `payments-sim` | Spring Boot 3.x, Java 21 | Stateful fake PSP: mints references, persists state, fires signed webhooks | Built (Wave 1 @ Stage 2) |
 | `db`, `payments-sim-db` | Postgres 16 (Docker) | One instance per service (RX-001) | Built |
 | `docker-compose` | — | Wires services; home of the smoke test | Built |
 | `ops-web` | React | Complete operations console (Head 1) | Not started |
@@ -243,10 +248,13 @@ compose + health checks. Frozen artifacts live under `contracts/`; the **Freeze 
 (`WAVE0_00_OVERVIEW.md §1b`) is the single authoritative status source. Frozen decisions
 evolve only via append-only `RX-` records, never in-place edits.
 
-**Wave 1 — Parallel build** *(in progress)*
+**Wave 1 — Parallel build** *(in progress — delivered in Stages)*
 Core domain + persistence · vertical strategies · ledger/finance (outbox-driven) · payment
-orchestration · `payments-sim` · `ops-web`. Rooms is wired end-to-end; the remaining
-verticals validate the strategy pattern next.
+orchestration · `payments-sim` · `ops-web`. Wave 1 is delivered as a Stage march:
+**Stage 1** (book a room) and **Stage 2** (get paid — the money loop, SPA availability,
+scoped cross-vertical allocation) are complete (tagged `stage-2`); **Stages 3–8** remain.
+See [HS-08 — Delivery Plan](docs/system-design/prd/08-delivery-plan.md) for the full
+Stage↔Wave map.
 
 **Wave 2 — Integration & MCP**
 Full smoke test (create customer → search → cross-vertical folio → confirm → pay → see

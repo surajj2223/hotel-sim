@@ -8,14 +8,14 @@ repo **actually contains today**, not the end-state described in the README.
 > `payments-sim-db` on :5433). `docker-compose.yml` defines all four.
 > `ops-web` and the MCP server are not in the tree yet.
 >
-> **Honest caveat about the money loop:** `payments-sim` is fully built (it mints
-> references, persists state, and can fire signed webhooks), but the *outbound*
-> `core-api → payments-sim` seam is not wired into the live request path yet
-> (Feature 2 Part 2). So today you can run each service and drive the booking
-> lifecycle on `core-api`; the end-to-end authorise→capture→ledger loop is exercised
-> by the **smoke harness** (see [The money loop](#the-money-loop-smoke-harness)), not
-> by clicking through the API. This guide focuses on the `core-api` inner loop, which
-> is where day-to-day work happens.
+> **The money loop is wired end-to-end (Stage 2).** `payments-sim` is fully built (mints
+> references, persists state, fires signed webhooks), and the *outbound*
+> `core-api → payments-sim` seam is now live: creating a link / capturing / cancelling /
+> refunding drives a real PSP round-trip (PSP-001..017, `WAVE0_05 §9a`). The authorisation
+> that a hosted checkout would otherwise trigger is driven by `payments-sim`'s test seam in
+> the smoke harness (see [The money loop](#the-money-loop-smoke-harness)) — the base stack
+> deliberately leaves that seam unreachable. This guide covers both the `core-api` inner
+> loop and the full money loop.
 
 ---
 
@@ -176,7 +176,7 @@ endpoints (listed after the happy path). All paths are relative to
 | `/customers` | POST | Create a customer (server mints `shopperReference`) |
 | `/customers/{id}` | GET | Fetch one customer |
 | `/customers/{id}/preferences/{key}` | PUT | Upsert one preference value |
-| `/availability` | GET | Room availability + price (**ROOM only**; other verticals return 400 by design) |
+| `/availability` | GET | Availability + price; resolves any registered vertical (ROOM and SPA wired — SPA returns `spaAttributes`; FNB/EVENT return 400 until registered) |
 | `/bookings` | POST | Open an empty folio for a customer |
 | `/bookings/{id}/lines` | POST | Add a room line (revalidates availability + price, recomputes totals) |
 | `/bookings/{id}` | GET | Read the folio with lines and derived amounts |
@@ -221,27 +221,32 @@ The interesting design lives in the edge cases, not the happy path:
   lines whose quantity exceeds 5 in one window; the over-the-limit write fails loudly
   with a 409 rather than overbooking. This is the write-time revalidation (INV-003),
   the core safety mechanism.
-- **400 on non-ROOM availability** — `?vertical=SPA` returns 400. Only ROOM is wired
-  end-to-end — this is intentional, not a bug, and shows the `ApiError` envelope shape.
+- **SPA availability** — `?vertical=SPA` returns results with a `spaAttributes` object
+  (treatmentKind, durationMinutes, therapistGender, concurrentSlots — Slice A3/A4).
+  `/availability` resolves any registered vertical via `VerticalStrategyRegistry`.
+  `?vertical=FNB` / `?vertical=EVENT` still return `400` until their strategies register —
+  that path shows the `ApiError` envelope shape.
 
-### Payment / webhook endpoints
+### Payment / webhook endpoints (Stage 2)
 
-These are live on `core-api`, but note the caveat in the banner at the top: the
-*outbound* call from `core-api` to `payments-sim` isn't wired into the live path yet,
-so creating a link / capturing / refunding won't drive a real PSP round-trip from a
-plain curl today. The endpoints, their shapes, and the inbound webhook handler all
-exist and are unit/integration-tested; the end-to-end loop runs via the smoke harness
-below.
+These are live on `core-api` and wired end-to-end: the *outbound* call from `core-api` to
+`payments-sim` drives a real PSP round-trip (PSP-001..017, `WAVE0_05 §9a`). Capture / cancel
+/ refund are async — they return `202` and the signed inbound webhook is the authoritative
+completion signal. Paths/verbs below are from `WAVE0_02_OPENAPI.yaml`.
 
 | Endpoint | Method | Purpose | Notes |
 |----------|--------|---------|-------|
-| `/bookings/{id}/payments` | POST | Create a payment link for a booking | Repercussive — requires `X-Human-Auth` header |
+| `/bookings/{id}/payments` | POST | Create a payment link for a booking | Repercussive — requires `X-Human-Auth`; accepts optional scoped `lineCoverage` (folio-wide if omitted — WHK-012/016, API-008 Slice S2) |
 | `/bookings/{id}/payments` | GET | List a booking's payments | |
 | `/payments/{id}` | GET | Read one payment | |
 | `/payments/{id}/capture` | POST | Capture (full/partial) | Async — returns `202`; `X-Human-Auth` |
 | `/payments/{id}/cancel` | POST | Cancel an uncaptured authorisation | Async — returns `202`; `X-Human-Auth` |
 | `/payments/{id}/refunds` | POST | Refund (full/partial) | Async — returns `202`; `X-Human-Auth` |
 | `/webhooks/psp` | POST | Inbound PSP events (authoritative state signal) | `X-PSP-Signature` (HMAC), not human-gated |
+
+> The folio read (`GET /bookings/{id}`) exposes a derived read-only `revenuePosted` per
+> booking line (API-008 Slice S2) — the captured revenue posted to the ledger for that line,
+> letting you confirm scoped allocation landed on the right vertical.
 
 Two auth behaviours worth seeing on purpose:
 
