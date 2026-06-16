@@ -62,6 +62,15 @@ public class OutboxEvent {
     @Column(name = "processed_at")
     private OffsetDateTime processedAt;
 
+    /**
+     * SCH-061 — stamped in the same atomic UPDATE that claims the row (PENDING→PROCESSING),
+     * and re-stamped when a stale PROCESSING row is reclaimed. Drives the stale-reclaim cutoff
+     * ({@link OutboxProcessor}). Null for rows that predate the V5 migration — those are never
+     * reclaimed, which is acceptable for the POC.
+     */
+    @Column(name = "claimed_at")
+    private OffsetDateTime claimedAt;
+
     @PrePersist
     void onCreate() {
         createdAt = OffsetDateTime.now();
