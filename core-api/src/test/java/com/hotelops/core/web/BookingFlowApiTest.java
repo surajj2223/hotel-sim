@@ -98,7 +98,8 @@ class BookingFlowApiTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.totalAmount").value(0))
-                .andExpect(jsonPath("$.balance").value(0))
+                .andExpect(jsonPath("$.customerOwes").value(0))
+                .andExpect(jsonPath("$.netRevenue").value(0))
                 .andExpect(jsonPath("$.lines.length()").value(0))
                 .andReturn();
         UUID bookingId = UUID.fromString(node(folioCreated).get("id").asText());
@@ -110,7 +111,7 @@ class BookingFlowApiTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
                 .andExpect(jsonPath("$.totalAmount").value(LINE_AMOUNT))
-                .andExpect(jsonPath("$.balance").value(LINE_AMOUNT))          // balance == lineAmount
+                .andExpect(jsonPath("$.customerOwes").value(LINE_AMOUNT))     // unpaid: owes == lineAmount
                 .andExpect(jsonPath("$.lines.length()").value(1))
                 .andExpect(jsonPath("$.lines[0].lineAmount").value(LINE_AMOUNT))   // rate × 2 nights
                 .andExpect(jsonPath("$.lines[0].unitPrice").value(UNIT_PRICE))     // rate stays the per-night rate
@@ -120,7 +121,7 @@ class BookingFlowApiTest {
         mvc.perform(get("/bookings/" + bookingId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
-                .andExpect(jsonPath("$.balance").value(LINE_AMOUNT));
+                .andExpect(jsonPath("$.customerOwes").value(LINE_AMOUNT));
 
         JsonNode after = findProduct(node(mvc.perform(get("/availability")
                         .param("vertical", "ROOM")

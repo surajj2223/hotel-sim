@@ -4,6 +4,39 @@ Engineering changelog for the hotel-sim POC. Contract freeze/version history liv
 `WAVE0_0X` artifacts' own changelog sections — this file tracks implementation work that is
 not itself a contract change.
 
+## Changed — RX-003: `balance` split into `customerOwes` + `netRevenue` (Slice 1) [RX-003]
+
+Replaced the single overloaded `balance` (`total − paid + refunded`) with two
+separately-derived, honestly-named read-model fields, per RX-003 §2:
+
+- **`customerOwes` = `max(0, total_amount − amount_paid)`** — the settlement predicate
+  ("paid" == `customerOwes == 0`). Refunds never appear in it; the clamp keeps an
+  over-capture from rendering as a negative receivable.
+- **`netRevenue` = `amount_paid − amount_refunded`** — the finance read.
+
+This fixes the latent defect where a paid-then-refunded folio (e.g. 600 → pay 600 →
+refund 100) read `balance = +100`, falsely re-opening a customer debt that the refund did
+not create. Read-model only — no capture, refund, posting, or ledger behaviour changed.
+
+- **Schema:** additive Flyway `V6__balance_split.sql` drops + recreates the `booking_balance`
+  view (SCH-021) with `customer_owes` / `net_revenue`. `V1` (frozen) untouched.
+- **Domain:** `Booking.getBalance()` removed outright (no alias — a stale reader must fail to
+  compile) → `getCustomerOwes()` / `getNetRevenue()`; `BookingBalance` projection mirrors the
+  new view columns; `BookingBalance.isPaid()` keys on `customerOwes == 0`.
+- **DTO:** `FolioResponse.balance` → `customerOwes` + `netRevenue` (`ops-web` not present in
+  repo; no UI consumer to update). Frozen `WAVE0_02_OPENAPI.yaml` keeps `balance` + its
+  RX-003 banner — the forward spec lives in the ledger, not by mutating the frozen contract.
+- **Beyond RX-003 §4's stated blast radius:** `BookingRepository.findUnpaid()` still encoded
+  the superseded `total − paid + refunded > 0` predicate, which wrongly listed a
+  fully-refunded booking as unpaid. Corrected to the D2 settlement predicate `total − paid > 0`.
+
+Proofs: `PaymentApiTest.RX_003_paidThenRefunded_customerOwesZero_netRevenueRetained`
+(end-to-end HTTP money loop → `customerOwes == 0`, `netRevenue == 500`);
+`BookingEntityTest` (view split, fully-paid, refund-no-debt, `findUnpaid` excludes refunded);
+existing `InvariantTest` / folio API tests migrated to the two fields.
+
+Freeze Ledger (`WAVE0_00 §1b`) SCH-021-via-RX-003 row flipped to **FROZEN · DONE**.
+
 ## Changed — Docs reconciliation: Stage↔Wave mapping made explicit
 
 Brought the narrative docs into agreement with shipped reality after the `stage-2` tag

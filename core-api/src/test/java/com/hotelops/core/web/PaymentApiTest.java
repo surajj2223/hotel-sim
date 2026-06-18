@@ -309,6 +309,61 @@ class PaymentApiTest {
                 .andExpect(status().isPreconditionRequired());
     }
 
+    // ── RX-003 folio settlement read-model (customerOwes / netRevenue) ────────
+
+    @Test
+    void RX_003_paidThenRefunded_customerOwesZero_netRevenueRetained() throws Exception {
+        // RX-003 §1 row 3, end-to-end over HTTP: book £600 → pay £600 → refund £100.
+        // The refund must NOT reopen a debt: customerOwes stays 0; netRevenue falls 600 → 500.
+        UUID customerId = createCustomer();
+        UUID productId = productService.createRoom(
+                "RX003 Room " + UUID.randomUUID(), 60_000L, "GBP",
+                "HIGH", "KING", 2, true, 5).getId();
+        UUID bookingId = createBooking(customerId);
+        addLine(bookingId, productId);
+
+        UUID paymentId = UUID.fromString(node(mvc.perform(post("/bookings/" + bookingId + "/payments")
+                        .header(HA, HA_OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":60000}"))
+                .andExpect(status().isCreated())
+                .andReturn()).get("id").asText());
+        String mref = paymentReference(paymentId);
+
+        // Pay the full £600: AUTHORISATION then CAPTURE (capture rolls up amountPaid).
+        String authPspRef = newPspRef();
+        deliverEvent("AUTHORISATION", authPspRef + ":AUTHORISATION:1", mref, authPspRef, 60000L,
+                ",\"authExpiresAt\":\"2026-08-04T11:00:00Z\"");
+        String capPspRef = newPspRef();
+        deliverEvent("CAPTURE", capPspRef + ":CAPTURE:1", mref, capPspRef, 60000L, "");
+
+        mvc.perform(get("/bookings/" + bookingId))
+                .andExpect(jsonPath("$.amountPaid").value(60000))
+                .andExpect(jsonPath("$.customerOwes").value(0))
+                .andExpect(jsonPath("$.netRevenue").value(60000));
+
+        // Refund £100: operator request → REFUND webhook settles + rolls up amountRefunded.
+        String refundMref = node(mvc.perform(post("/payments/" + paymentId + "/refunds")
+                        .header(HA, HA_OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":10000,\"reason\":\"Goodwill\"}"))
+                .andExpect(status().isAccepted())
+                .andReturn()).get("merchantReference").asText();
+        String refundPspRef = newPspRef();
+        deliverEvent("REFUND", refundPspRef + ":REFUND:1", mref, refundPspRef, 10000L,
+                ",\"refundMerchantReference\":\"" + refundMref
+                        + "\",\"originalReference\":\"" + authPspRef + "\"");
+
+        // RX-003: customerOwes == 0 (refund cannot make a customer owe more);
+        // netRevenue == amountPaid - amountRefunded == 600 - 100 == 500.
+        mvc.perform(get("/bookings/" + bookingId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.amountPaid").value(60000))
+                .andExpect(jsonPath("$.amountRefunded").value(10000))
+                .andExpect(jsonPath("$.customerOwes").value(0))
+                .andExpect(jsonPath("$.netRevenue").value(50000));
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private record Ids(UUID customerId, UUID productId, UUID bookingId) {}
@@ -361,6 +416,20 @@ class PaymentApiTest {
         return node(mvc.perform(get("/payments/" + paymentId))
                 .andExpect(status().isOk())
                 .andReturn()).get("merchantReference").asText();
+    }
+
+    private static String newPspRef() {
+        return "PSP-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+    }
+
+    /** Deliver an arbitrary PSP webhook event (caller controls pspReference for chaining). */
+    private void deliverEvent(String code, String idKey, String mref, String pspRef,
+                              long amount, String extra) throws Exception {
+        mvc.perform(post("/webhooks/psp")
+                        .header("X-PSP-Signature", "test-signature")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(eventBody(code, idKey, mref, pspRef, amount, extra)))
+                .andExpect(status().isOk());
     }
 
     private void driveAuthorisationWebhook(String merchantReference, long amount) throws Exception {

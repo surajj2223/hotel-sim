@@ -13,8 +13,10 @@ import java.util.UUID;
 /**
  * SCH-021 — read-only projection of the {@code booking_balance} view.
  *
- * Balance = total_amount - amount_paid + amount_refunded.
- * "Paid" is defined as balance == 0; there is no boolean paid flag (see project brief §6).
+ * RX-003: the overloaded {@code balance} column was split into two separately-derived
+ * numbers — {@code customer_owes = max(0, total_amount - amount_paid)} (settlement) and
+ * {@code net_revenue = amount_paid - amount_refunded} (finance read).
+ * "Paid" is defined as customerOwes == 0; there is no boolean paid flag (see project brief §6).
  *
  * This entity is immutable — only SELECT queries are valid.
  */
@@ -40,12 +42,16 @@ public class BookingBalance {
     @Column(name = "amount_refunded")
     private long amountRefunded;
 
-    /** Derived: total_amount - amount_paid + amount_refunded. */
-    @Column(name = "balance")
-    private long balance;
+    /** Derived (RX-003): max(0, total_amount - amount_paid) — what the customer still owes. */
+    @Column(name = "customer_owes")
+    private long customerOwes;
 
-    /** Convenience: a booking is fully paid when balance == 0. */
+    /** Derived (RX-003): amount_paid - amount_refunded — net revenue the hotel retained. */
+    @Column(name = "net_revenue")
+    private long netRevenue;
+
+    /** Convenience: a booking is fully settled when customerOwes == 0. */
     public boolean isPaid() {
-        return balance == 0L;
+        return customerOwes == 0L;
     }
 }
