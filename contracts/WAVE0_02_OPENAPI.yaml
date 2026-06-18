@@ -199,6 +199,55 @@ paths:
                 $ref: '#/components/schemas/FolioResponse'
         '404':
           $ref: '#/components/responses/NotFound'
+  /bookings/{bookingId}/lines/{lineId}/complete:
+    post:
+      operationId: completeLine
+      tags:
+      - bookings
+      summary: 'Mark a booking line rendered/done (ACTIVE -> COMPLETED). Ungated: posts
+        nothing, moves no money (mirrors cancelLine). No folio side effect — completing a
+        line never flips the booking.'
+      parameters:
+      - $ref: '#/components/parameters/BookingId'
+      - $ref: '#/components/parameters/LineId'
+      responses:
+        '200':
+          description: 'Line marked COMPLETED. Returns the folio; the line status reflects
+            the change and the booking status is unchanged.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FolioResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/StateConflict'
+  /bookings/{bookingId}/complete:
+    post:
+      operationId: completeFolio
+      tags:
+      - bookings
+      summary: 'Close out a folio (CONFIRMED -> COMPLETED). Repercussive, INV-007 gated.
+        Revalidates C1 (every non-CANCELLED line is COMPLETED) + C2 (customerOwes == 0,
+        RX-003) atomically and fails loudly with current state. Idempotent on
+        already-COMPLETED; CANCELLED/PENDING -> 409.'
+      parameters:
+      - $ref: '#/components/parameters/BookingId'
+      - $ref: '#/components/parameters/HumanAuth'
+      responses:
+        '200':
+          description: 'Folio completed (CONFIRMED -> COMPLETED), or already COMPLETED
+            (idempotent success). Returns the folio.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FolioResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/FolioNotCompletable'
+        '428':
+          $ref: '#/components/responses/HumanAuthRequired'
   /bookings/{bookingId}/payments:
     post:
       operationId: createPaymentLink
@@ -401,6 +450,13 @@ components:
       schema:
         type: string
         format: uuid
+    LineId:
+      name: lineId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     HumanAuth:
       name: X-Human-Auth
       in: header
@@ -449,6 +505,16 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ApiError'
+    FolioNotCompletable:
+      description: 'completeFolio rejected by write-time revalidation: C1 (a non-CANCELLED
+        line is not yet COMPLETED) and/or C2 (customerOwes != 0, RX-003) failed, or the
+        folio is in a terminal/ineligible state (CANCELLED or PENDING). No write occurred;
+        the body carries the live state so ops-web/the agent can surface it and the caller
+        can re-read and retry.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/FolioCompletionConflict'
   schemas:
     Vertical:
       type: string
@@ -497,6 +563,38 @@ components:
             type: object
             additionalProperties: true
       description: Body of a 409 from INV-003 write-time revalidation.
+    FolioCompletionState:
+      type: object
+      required:
+      - status
+      - customerOwes
+      - incompleteLineIds
+      properties:
+        status:
+          $ref: '#/components/schemas/BookingStatus'
+          description: The booking's current status, unchanged by the rejected write.
+        customerOwes:
+          type: integer
+          format: int64
+          description: 'Live settlement figure (RX-003): max(0, totalAmount - amountPaid),
+            minor units. C2 requires this to be 0.'
+        incompleteLineIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: 'C1: every non-CANCELLED line that is not yet COMPLETED (the ACTIVE
+            stragglers). Empty when only C2 failed or on a terminal-state attempt.'
+      description: 'currentState payload for a completeFolio 409 \u2014 names which condition
+        failed and echoes the live truth.'
+    FolioCompletionConflict:
+      allOf:
+      - $ref: '#/components/schemas/ApiError'
+      - type: object
+        properties:
+          currentState:
+            $ref: '#/components/schemas/FolioCompletionState'
+      description: Body of a 409 from completeFolio revalidation or a terminal-state attempt.
     CustomerCreateRequest:
       type: object
       required:
@@ -1205,3 +1303,20 @@ x-requirements-stage2:
     - SCH-070
     - SCH-071
     - INV-006
+  - id: API-014
+    requirement: Mark a booking line rendered/done (ACTIVE -> COMPLETED). Ungated; no folio side effect.
+    acceptance: '200 FolioResponse with the line COMPLETED and the booking status unchanged;
+      completing a CANCELLED (terminal) line -> 409; not human-gated (posts nothing, mirrors cancelLine).'
+    mapsTo:
+    - ENM-003
+  - id: API-015
+    requirement: Close out a folio (CONFIRMED -> COMPLETED); human-gated; write-time revalidated.
+    acceptance: '200 FolioResponse on CONFIRMED -> COMPLETED; idempotent 200 on already-COMPLETED;
+      C1 (a non-CANCELLED line not COMPLETED) and/or C2 (customerOwes != 0, RX-003) -> 409
+      FolioNotCompletable naming the straggler lineIds + live customerOwes; CANCELLED or PENDING -> 409;
+      X-Human-Auth required else 428 (INV-007).'
+    mapsTo:
+    - ENM-002
+    - ENM-003
+    - INV-007
+    - RX-003
