@@ -4,6 +4,47 @@ Engineering changelog for the hotel-sim POC. Contract freeze/version history liv
 `WAVE0_0X` artifacts' own changelog sections — this file tracks implementation work that is
 not itself a contract change.
 
+## Added — Folio completion lifecycle: `completeLine` + `completeFolio` (Slice 2) [API-014, API-015, ENM-002, ENM-003, INV-007, RX-003]
+
+Drove the two previously-dead terminal enum values (`BookingStatus.COMPLETED`,
+`BookingLineStatus.COMPLETED`) with two operational lifecycle writes, per
+`DESIGN_FOLIO_COMPLETION.md`. Additive over the frozen contract (API-014/API-015 frozen
+first; see `PROPOSAL_API_014_015_FOLIO_COMPLETION.md`). No schema change, no migration.
+
+- **`completeLine` (API-014)** — `POST /bookings/{bookingId}/lines/{lineId}/complete`:
+  ACTIVE → COMPLETED. **Ungated** (posts nothing, moves no money — mirrors the ungated
+  `cancelLine`) and with **no folio side effect** (completing a line never flips the
+  booking — the deliberate asymmetry with cancel's rollup, DESIGN §2). CANCELLED line → 409;
+  a line not under the path booking → 404.
+- **`completeFolio` (API-015)** — `POST /bookings/{bookingId}/complete`: CONFIRMED →
+  COMPLETED. **INV-007 gated** (`X-Human-Auth` asserted before the service call, like
+  `capturePayment`; absent → 428). Write-time revalidation fails loudly (409
+  `FolioNotCompletable`, `currentState` naming the straggler `lineId`s + live `customerOwes`)
+  unless both **C1** (every non-CANCELLED line is COMPLETED) and **C2** (`customerOwes == 0`,
+  RX-003 — refund-driven `netRevenue` is irrelevant and does not block) hold. Idempotent 200
+  on an already-COMPLETED booking; CANCELLED (terminal) and PENDING (empty) → 409.
+
+Notable: `completeFolio` deliberately does **not** call `recalculateTotals` — that roll-up
+sums **ACTIVE-only** lines (`sumActiveLineAmounts`), so recomputing after lines are COMPLETED
+would drop the completed lines' debt and zero the total. The freshly-loaded booking already
+carries the server-maintained totals (line mutations + capture/refund webhooks keep them
+current), read inside the completion transaction — fresh and correct for COMPLETED lines.
+
+Error mapping reuses the existing 409 `StateConflict` envelope via a new
+`FolioNotCompletableException` (domain-only fields, no web coupling) + `FolioCompletionState`
+DTO. New endpoints re-read the folio via `getById` after the write (the proven `addLine`
+pattern) to avoid mapping a detached lazy proxy.
+
+Proofs: `FolioCompletionApiTest` (10 cases — line complete / CANCELLED-line 409 / 404;
+folio happy path; C1 straggler; C2 owes≠0; refunded-but-settled completes, ties RX-003 §5;
+idempotent 200 vs CANCELLED 409; INV-007 428). Full core-api suite green (147/147).
+Freeze Ledger API-014/API-015 rows → **FROZEN · DONE**.
+
+> Known follow-up (out of Slice 2 scope): `sumActiveLineAmounts` is ACTIVE-only, so a
+> `recalculateTotals` triggered *after* line completion (e.g. a refund webhook on a
+> checked-out folio, Stage 5) would drop COMPLETED-line debt from `totalAmount`. Flagged for
+> the refund-after-completion slice.
+
 ## Changed — RX-003: `balance` split into `customerOwes` + `netRevenue` (Slice 1) [RX-003]
 
 Replaced the single overloaded `balance` (`total − paid + refunded`) with two
