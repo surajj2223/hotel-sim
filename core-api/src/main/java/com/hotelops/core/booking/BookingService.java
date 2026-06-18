@@ -2,6 +2,7 @@ package com.hotelops.core.booking;
 
 import com.hotelops.core.common.enums.BookingLineStatus;
 import com.hotelops.core.common.enums.BookingStatus;
+import com.hotelops.core.common.error.FolioNotCompletableException;
 import com.hotelops.core.common.error.StateChangedException;
 import com.hotelops.core.customer.Customer;
 import com.hotelops.core.customer.CustomerRepository;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -139,6 +141,93 @@ public class BookingService {
             booking.setStatus(BookingStatus.CANCELLED);
         }
         bookingRepository.save(booking);
+    }
+
+    /**
+     * API-014 (ENM-003) — mark a single line rendered/done: ACTIVE → COMPLETED.
+     *
+     * Ungated and with NO folio side effect: completing a line never flips the booking
+     * (the deliberate asymmetry with {@link #cancelLine}'s rollup — DESIGN_FOLIO_COMPLETION
+     * §2; do not "tidy" it into a symmetric rollup). A CANCELLED line is terminal and cannot
+     * be completed; an already-COMPLETED line is idempotent. The caller re-reads the folio.
+     */
+    public void completeLine(UUID bookingId, UUID lineId) {
+        BookingLine line = lineRepository.findById(lineId)
+                .orElseThrow(() -> new EntityNotFoundException("BookingLine not found: " + lineId));
+        if (!line.getBooking().getId().equals(bookingId)) {
+            throw new EntityNotFoundException(
+                    "BookingLine " + lineId + " does not belong to booking " + bookingId);
+        }
+        if (line.getStatus() == BookingLineStatus.CANCELLED) {
+            throw new StateChangedException(
+                    "Line " + lineId + " is CANCELLED (terminal) and cannot be completed", null);
+        }
+        line.setStatus(BookingLineStatus.COMPLETED);
+        lineRepository.save(line);
+        // No recalculateTotals, no booking status change (T-A): completion has no folio effect.
+    }
+
+    /**
+     * API-015 (ENM-002, INV-007) — close out a folio: CONFIRMED → COMPLETED.
+     *
+     * Write-time revalidation (INV-003 / charter §4): fails loudly WITHOUT writing unless both
+     *   C1 — every non-CANCELLED line is COMPLETED, and
+     *   C2 — {@code customerOwes == 0} (RX-003 D2; refund-driven {@code netRevenue} is
+     *        irrelevant and correctly does not block)
+     * hold. Idempotent success on an already-COMPLETED booking; CANCELLED (terminal) and
+     * PENDING (empty, nothing rendered) are not completable.
+     *
+     * Deliberately does NOT call {@link #recalculateTotals}: that sum is ACTIVE-only
+     * ({@code sumActiveLineAmounts}), so recomputing after lines are COMPLETED would drop the
+     * completed lines' debt and zero the total. The freshly-loaded booking already carries the
+     * server-maintained totals (line mutations and capture/refund webhooks keep them current),
+     * read here inside the completion transaction — fresh, and correct for COMPLETED lines.
+     */
+    public void completeFolio(UUID bookingId) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new EntityNotFoundException("Booking not found: " + bookingId));
+
+        if (booking.getStatus() == BookingStatus.COMPLETED) {
+            return;   // idempotent success (Q2)
+        }
+        if (booking.getStatus() != BookingStatus.CONFIRMED) {
+            // CANCELLED (terminal) or PENDING (empty folio, nothing to complete).
+            throw new FolioNotCompletableException(
+                    "Folio " + bookingId + " is " + booking.getStatus() + " and cannot be completed",
+                    booking.getStatus(), booking.getCustomerOwes(), List.of());
+        }
+
+        // C1 — every non-CANCELLED line must be COMPLETED; collect the ACTIVE stragglers.
+        List<UUID> incompleteLineIds = booking.getLines().stream()
+                .filter(l -> l.getStatus() != BookingLineStatus.CANCELLED
+                          && l.getStatus() != BookingLineStatus.COMPLETED)
+                .map(BookingLine::getId)
+                .toList();
+
+        long customerOwes = booking.getCustomerOwes();   // C2 — RX-003 (read fresh, no recalc)
+        boolean linesDone = incompleteLineIds.isEmpty();
+        boolean settled = customerOwes == 0L;
+
+        if (!linesDone || !settled) {
+            throw new FolioNotCompletableException(
+                    completionFailureMessage(incompleteLineIds, customerOwes),
+                    booking.getStatus(), customerOwes, incompleteLineIds);
+        }
+
+        booking.setStatus(BookingStatus.COMPLETED);
+        bookingRepository.save(booking);
+    }
+
+    private static String completionFailureMessage(List<UUID> incompleteLineIds, long customerOwes) {
+        StringBuilder sb = new StringBuilder("Folio not completable:");
+        if (!incompleteLineIds.isEmpty()) {
+            sb.append(' ').append(incompleteLineIds.size()).append(" line(s) not COMPLETED (C1)");
+        }
+        if (customerOwes != 0L) {
+            sb.append(incompleteLineIds.isEmpty() ? ' ' : ';').append(" customer owes ")
+              .append(customerOwes).append(" (C2)");
+        }
+        return sb.toString();
     }
 
     @Transactional(readOnly = true)
