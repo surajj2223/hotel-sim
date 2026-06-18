@@ -1,10 +1,12 @@
 package com.hotelops.core.web;
 
+import com.hotelops.core.common.error.FolioNotCompletableException;
 import com.hotelops.core.common.error.HumanAuthRequiredException;
 import com.hotelops.core.common.error.InvalidPspSignatureException;
 import com.hotelops.core.common.error.StateChangedException;
 import com.hotelops.core.payment.psp.PspGatewayException;
 import com.hotelops.core.web.dto.ApiError;
+import com.hotelops.core.web.dto.FolioCompletionState;
 import com.hotelops.core.web.dto.StateConflict;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.ConstraintViolationException;
@@ -46,6 +48,19 @@ public class GlobalExceptionHandler {
     public ResponseEntity<StateConflict> stateConflict(StateChangedException ex) {
         Object current = ex.getCurrentState();
         Object currentState = (current == null) ? Map.of() : Map.of("availableUnits", current);
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new StateConflict("STATE_CONFLICT", ex.getMessage(), currentState));
+    }
+
+    /**
+     * 409 — API-015 completeFolio revalidation failed (C1 a non-CANCELLED line not COMPLETED,
+     * and/or C2 customerOwes != 0), or a terminal/ineligible state (CANCELLED/PENDING). No
+     * write occurred; the body echoes the live state ({@code FolioCompletionState}).
+     */
+    @ExceptionHandler(FolioNotCompletableException.class)
+    public ResponseEntity<StateConflict> folioNotCompletable(FolioNotCompletableException ex) {
+        FolioCompletionState currentState = new FolioCompletionState(
+                ex.getStatus(), ex.getCustomerOwes(), ex.getIncompleteLineIds());
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new StateConflict("STATE_CONFLICT", ex.getMessage(), currentState));
     }
