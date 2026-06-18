@@ -107,11 +107,9 @@ Durable context that is *not* status (safe to keep here):
   postings. GAP-1 (per-line revenue) and GAP-2 (outbox idempotency) are closed as part of
   that build. Defer to the Freeze Ledger for per-ID freeze/done status — never restate it
   here.
-- Stage 2 — the **left half** (Feature 2, active work) is being drafted now: a real
-  `payments-sim` service and the outbound seam from `core-api`. Its contract surface is
-  `WAVE0_05_PSP_API.md` (DRAFT) + RX-001 + SCF-005. **No Feature 2 implementation code
-  before `WAVE0_05` is FROZEN in the ledger.** See @contracts/refactor-x/RX-001-psp-direction-and-statefulness.md
-  for D1 (`pay-web` deferred), D2 (`payments-sim` stateful with its own Postgres), D3
-  (fail-loud / no-retry outbound + tx-ordering invariant).
+- Stage 2 — the **left half** (Feature 2) shipped: a real `payments-sim` service and the
+  outbound seam from `core-api` (`WAVE0_05_PSP_API.md` FROZEN, PSP-001..017 DONE; RX-001
+  D1/D2/D3; SCF-005). Close-out: balance split into `customerOwes` / `netRevenue` (RX-003)
+  and folio/line completion lifecycle (API-014 / API-015) — both FROZEN · DONE.
 - `getRevenue` and other reporting reads are deferred to Stage 6. Per-line posting
   correctness is proven in Stage 2 by asserting `LedgerPosting` rows directly in tests.

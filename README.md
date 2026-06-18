@@ -5,7 +5,8 @@ complete, conventional **headful** system can later be made **headless** — via
 MCP layer — without rebuilding anything underneath.
 
 > **Status:** Wave 0 (contracts) is frozen. Wave 1 is in progress — **Stage 2 complete**
-> (tagged `stage-2`); Stages 3–8 remain. `core-api` and a standalone `payments-sim` PSP
+> (tagged `stage-2-complete`; close-out: balance split into `customerOwes`/`netRevenue`,
+> folio/line completion lifecycle); Stages 3–8 remain. `core-api` and a standalone `payments-sim` PSP
 > are built and talk to each other over real HTTP + signed webhooks. The MCP server,
 > `ops-web`, and a richer customer checkout are not built yet. Wave 1 is delivered in
 > Stages — see [Delivery Waves](#delivery-waves) and
@@ -30,7 +31,7 @@ console already uses. **No capability may exist solely for the agent.**
 
 | Layer | What it is | Built? |
 |---|---|---|
-| **Body** — `core-api` | All logic, rules, and state. The single source of truth. | ✅ Built — Wave 1 @ Stage 2 (money loop, SPA, scoped allocation shipped; `stage-2` tag) |
+| **Body** — `core-api` | All logic, rules, and state. The single source of truth. | ✅ Built — Wave 1 @ Stage 2 (money loop, SPA, scoped allocation, balance split + folio completion lifecycle shipped; `stage-2-complete` tag) |
 | **Head 1 (headful)** — `ops-web` | A complete standalone operations console. | ⏳ Not yet built |
 | **Head 2 (headless)** — MCP server | A thin tool-wrapper over the same `core-api` endpoints. | ⏳ Wave 2 |
 
@@ -252,7 +253,8 @@ evolve only via append-only `RX-` records, never in-place edits.
 Core domain + persistence · vertical strategies · ledger/finance (outbox-driven) · payment
 orchestration · `payments-sim` · `ops-web`. Wave 1 is delivered as a Stage march:
 **Stage 1** (book a room) and **Stage 2** (get paid — the money loop, SPA availability,
-scoped cross-vertical allocation) are complete (tagged `stage-2`); **Stages 3–8** remain.
+scoped cross-vertical allocation; close-out: balance correctly split into customer-receivable
+vs net-revenue, and the folio/line completion lifecycle) are complete (tagged `stage-2-complete`); **Stages 3–8** remain.
 See [HS-08 — Delivery Plan](docs/system-design/prd/08-delivery-plan.md) for the full
 Stage↔Wave map.
 
