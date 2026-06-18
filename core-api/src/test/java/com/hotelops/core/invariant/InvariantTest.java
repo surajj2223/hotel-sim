@@ -155,8 +155,9 @@ class InvariantTest {
         assertThat(booking.getTotalAmount()).isEqualTo(50000L);
         assertThat(booking.getAmountPaid()).isEqualTo(30000L);
         assertThat(booking.getAmountRefunded()).isEqualTo(5000L);
-        // balance = 50000 - 30000 + 5000 = 25000
-        assertThat(booking.getBalance()).isEqualTo(25000L);
+        // RX-003: customerOwes = max(0, 50000 - 30000) = 20000; netRevenue = 30000 - 5000 = 25000
+        assertThat(booking.getCustomerOwes()).isEqualTo(20000L);
+        assertThat(booking.getNetRevenue()).isEqualTo(25000L);
     }
 
     // ── INV-005 ──────────────────────────────────────────────────────────────

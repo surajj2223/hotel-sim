@@ -266,7 +266,7 @@ class ScopedAllocationApiTest {
                 .andExpect(jsonPath("$.totalAmount").value(total))
                 .andExpect(jsonPath("$.amountAuthorised").value(authorised))
                 .andExpect(jsonPath("$.amountPaid").value(paid))
-                .andExpect(jsonPath("$.balance").value(total - paid));
+                .andExpect(jsonPath("$.customerOwes").value(total - paid));
     }
 
     private UUID lineIdByVertical(UUID bookingId, String vertical) throws Exception {

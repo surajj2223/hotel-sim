@@ -189,10 +189,11 @@ class ImmediateCaptureApiTest {
                 .as("posting must carry bookingLine (per-line, not folio-level; WHK-012)")
                 .isNotNull();
 
-        // 8. Booking balance — amountPaid rolls up to SPA_PRICE, balance == 0.
+        // 8. Booking balance — amountPaid rolls up to SPA_PRICE, customerOwes == 0 (RX-003).
         mvc.perform(get("/bookings/" + bookingId))
                 .andExpect(jsonPath("$.amountPaid").value(SPA_PRICE))
-                .andExpect(jsonPath("$.balance").value(0));
+                .andExpect(jsonPath("$.customerOwes").value(0))
+                .andExpect(jsonPath("$.netRevenue").value(SPA_PRICE));
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

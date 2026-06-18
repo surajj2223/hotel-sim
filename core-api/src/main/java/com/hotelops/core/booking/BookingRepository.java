@@ -15,10 +15,13 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
 
     List<Booking> findByStatus(BookingStatus status);
 
-    /** INV-004: listUnpaidBookings — bookings where balance > 0. */
+    /** INV-004 (RX-003 D2): listUnpaidBookings — bookings where customerOwes > 0, i.e.
+     *  (total - paid) > 0. The old predicate added amount_refunded, which wrongly re-listed a
+     *  fully-refunded booking as unpaid (the RX-003 defect; this query was outside §4's stated
+     *  blast radius — corrected here to the settlement predicate). */
     @Query("""
            SELECT b FROM Booking b
-           WHERE (b.totalAmount - b.amountPaid + b.amountRefunded) > 0
+           WHERE (b.totalAmount - b.amountPaid) > 0
            """)
     List<Booking> findUnpaid();
 

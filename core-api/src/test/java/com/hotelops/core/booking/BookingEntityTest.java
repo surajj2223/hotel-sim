@@ -59,7 +59,7 @@ class BookingEntityTest extends AbstractDataJpaTest {
     // ── SCH-021 ──────────────────────────────────────────────────────────────
 
     @Test
-    void SCH_021_booking_balance_view_returns_correct_derived_balance() {
+    void SCH_021_booking_balance_view_returns_correct_derived_amounts() {
         Booking b = bookingRepository.save(booking());
         b.setTotalAmount(50000L);
         b.setAmountPaid(20000L);
@@ -69,13 +69,14 @@ class BookingEntityTest extends AbstractDataJpaTest {
         Optional<BookingBalance> balOpt = balanceRepository.findByBookingId(b.getId());
         assertThat(balOpt).isPresent();
         BookingBalance bal = balOpt.get();
-        // balance = 50000 - 20000 + 5000 = 35000
-        assertThat(bal.getBalance()).isEqualTo(35000L);
+        // RX-003: customerOwes = max(0, 50000 - 20000) = 30000; netRevenue = 20000 - 5000 = 15000
+        assertThat(bal.getCustomerOwes()).isEqualTo(30000L);
+        assertThat(bal.getNetRevenue()).isEqualTo(15000L);
         assertThat(bal.isPaid()).isFalse();
     }
 
     @Test
-    void SCH_021_booking_balance_is_zero_when_fully_paid() {
+    void SCH_021_customer_owes_is_zero_when_fully_paid() {
         Booking b = bookingRepository.save(booking());
         b.setTotalAmount(30000L);
         b.setAmountPaid(30000L);
@@ -83,8 +84,45 @@ class BookingEntityTest extends AbstractDataJpaTest {
         bookingRepository.save(b);
 
         BookingBalance bal = balanceRepository.findByBookingId(b.getId()).orElseThrow();
-        assertThat(bal.getBalance()).isZero();
+        assertThat(bal.getCustomerOwes()).isZero();
+        assertThat(bal.getNetRevenue()).isEqualTo(30000L);
         assertThat(bal.isPaid()).isTrue();
+    }
+
+    @Test
+    void RX_003_refund_does_not_reopen_a_debt() {
+        // paid 600, then 100 refunded → customer owes nothing; netRevenue falls to 500.
+        Booking b = bookingRepository.save(booking());
+        b.setTotalAmount(60000L);
+        b.setAmountPaid(60000L);
+        b.setAmountRefunded(10000L);
+        bookingRepository.save(b);
+
+        BookingBalance bal = balanceRepository.findByBookingId(b.getId()).orElseThrow();
+        assertThat(bal.getCustomerOwes()).isZero();
+        assertThat(bal.getNetRevenue()).isEqualTo(50000L);
+        assertThat(bal.isPaid()).isTrue();
+    }
+
+    @Test
+    void RX_003_findUnpaid_excludes_a_fully_refunded_booking() {
+        // INV-004 / RX-003 D2: listUnpaidBookings keys on customerOwes > 0, i.e. (total - paid).
+        // A paid-then-fully-refunded booking owes nothing and must NOT be listed (the old
+        // total - paid + refunded predicate wrongly re-listed it).
+        Booking unpaid = bookingRepository.save(booking("SHPR-unpaid000001"));
+        unpaid.setTotalAmount(60000L);              // owes 60000
+        bookingRepository.save(unpaid);
+
+        Booking refunded = bookingRepository.save(booking("SHPR-refunded0001"));
+        refunded.setTotalAmount(60000L);
+        refunded.setAmountPaid(60000L);
+        refunded.setAmountRefunded(60000L);          // owes 0, despite refunded > 0
+        bookingRepository.save(refunded);
+
+        assertThat(bookingRepository.findUnpaid())
+                .extracting(Booking::getId)
+                .contains(unpaid.getId())
+                .doesNotContain(refunded.getId());
     }
 
     // ── SCH-022 ──────────────────────────────────────────────────────────────
@@ -158,11 +196,17 @@ class BookingEntityTest extends AbstractDataJpaTest {
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private Booking booking() {
+        return booking("SHPR-booktest00001");
+    }
+
+    /** A booking whose customer carries the given (unique) shopperReference — lets a single
+     *  test persist more than one booking without colliding on customer_shopper_reference_key. */
+    private Booking booking(String shopperReference) {
         Customer c = new Customer();
         try {
             var f = Customer.class.getDeclaredField("shopperReference");
             f.setAccessible(true);
-            f.set(c, "SHPR-booktest00001");
+            f.set(c, shopperReference);
         } catch (Exception e) { throw new RuntimeException(e); }
         c.setFullName("Test Guest");
         c = customerRepository.save(c);

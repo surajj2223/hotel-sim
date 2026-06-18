@@ -19,8 +19,9 @@ import java.util.UUID;
  * for a single customer.  The three amount columns are maintained by core-api on
  * capture/refund events (INV-004); clients never write them directly.
  *
- * "Paid" == (balance == 0), not a boolean.  Balance is exposed via {@code booking_balance}
- * view (SCH-021); see {@link BookingBalance} for the JPA projection.
+ * "Paid" == (customerOwes == 0), not a boolean (RX-003).  customerOwes / netRevenue are
+ * exposed via the {@code booking_balance} view (SCH-021); see {@link BookingBalance} for the
+ * JPA projection.
  *
  * Amounts are always in integer minor units (pence).
  */
@@ -77,10 +78,16 @@ public class Booking {
                fetch = FetchType.LAZY)
     private List<BookingLine> lines = new ArrayList<>();
 
-    /** INV-004: derived balance (total - paid + refunded).
-     *  SUPERSEDED by RX-003 -> getCustomerOwes() / getNetRevenue(). See Freeze Ledger (WAVE0_00 §1b). */
-    public long getBalance() {
-        return totalAmount - amountPaid + amountRefunded;
+    /** INV-004 (RX-003): what the customer still owes — max(0, total - paid).
+     *  Refunds never increase this (a refund cannot make a customer owe more); the clamp
+     *  keeps an over-capture from rendering as a negative receivable. Settlement predicate. */
+    public long getCustomerOwes() {
+        return Math.max(0L, totalAmount - amountPaid);
+    }
+
+    /** INV-004 (RX-003): net revenue the hotel retained — paid - refunded. Finance read only. */
+    public long getNetRevenue() {
+        return amountPaid - amountRefunded;
     }
 
     @PrePersist

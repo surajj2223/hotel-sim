@@ -136,7 +136,8 @@ public class DtoMapper {
                 booking.getAmountPaid(),
                 booking.getAmountRefunded(),
                 booking.getAmountAuthorised(),
-                booking.getBalance(),
+                booking.getCustomerOwes(),
+                booking.getNetRevenue(),
                 lineDtos);
     }
 
