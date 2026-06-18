@@ -147,6 +147,8 @@ CREATE INDEX idx_booking_customer ON booking (customer_id);
 CREATE INDEX idx_booking_status   ON booking (status);
 
 -- SCH-021
+-- WARNING: SCH-021 booking_balance superseded by RX-003 (balance split -> customer_owes + net_revenue).
+-- See Freeze Ledger (WAVE0_00_OVERVIEW.md s1b). Do not build against the `balance` column without checking the ledger.
 CREATE VIEW booking_balance AS
   SELECT id AS booking_id,
          total_amount,

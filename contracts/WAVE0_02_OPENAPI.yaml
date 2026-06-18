@@ -778,7 +778,7 @@ components:
           format: int64
           readOnly: true
           description: 'Derived: totalAmount - amountPaid + amountRefunded (SCH-021). Paid == balance
-            0.'
+            0. SUPERSEDED by RX-003: split into customerOwes + netRevenue; see Freeze Ledger WAVE0_00 s1b.'
         lines:
           type: array
           items:

@@ -77,7 +77,8 @@ public class Booking {
                fetch = FetchType.LAZY)
     private List<BookingLine> lines = new ArrayList<>();
 
-    /** INV-004: derived balance (total - paid + refunded). */
+    /** INV-004: derived balance (total - paid + refunded).
+     *  SUPERSEDED by RX-003 -> getCustomerOwes() / getNetRevenue(). See Freeze Ledger (WAVE0_00 §1b). */
     public long getBalance() {
         return totalAmount - amountPaid + amountRefunded;
     }
