@@ -4,6 +4,61 @@ Engineering changelog for the hotel-sim POC. Contract freeze/version history liv
 `WAVE0_0X` artifacts' own changelog sections — this file tracks implementation work that is
 not itself a contract change.
 
+## Added — full payment-lifecycle Postman coverage (capture / complete / refund / cancel)
+
+Extended the runnable Postman collection
+(`docs/runnable-postman-collection/hotel-sim-postman-collection.json`) to drive the full
+payment lifecycle end-to-end. It previously stopped at scoped link/auth + IMMEDIATE spa
+settle; capture, folio completion, refund, and cancellation were all real, wired controller
+endpoints that nothing exercised over HTTP. Strictly additive — single artifact edit, no
+code and no contract change.
+
+- **Folders 08–12 appended** (00–07 untouched, not renumbered):
+  - **08 — Capture the room (MANUAL → revenue):** capture `{{roomPaymentId}}` (gated) →
+    poll until the self-emitted `CAPTURE` webhook settles → room line `revenuePosted` flips
+    `0 → 54000`, folio `customerOwes == 0`.
+  - **09 — Pay the F&B folio (IMMEDIATE):** scoped link → `authorise?sync=true`
+    (auth+capture in one chain) → F&B line `revenuePosted == 9000`, `netRevenue == 9000`.
+  - **10 — Complete the folios:** `completeLine` each non-cancelled line (ungated) →
+    `completeFolio` (gated) → `COMPLETED`; includes an **idempotent re-complete** probe
+    asserting **200, not 409**. Repeated for the F&B booking.
+  - **11 — Refund probe (partial):** refund part of the captured spa payment (gated) →
+    poll until the self-emitted `REFUND` webhook settles → `netRevenue` drops by the refund
+    while `customerOwes` stays `0` (**RX-003**: refund reduces net, not settlement).
+  - **12 — Cancel probe:** mints a *fresh* uncaptured MANUAL auth on a throwaway booking
+    (the room auth is now captured and uncancellable), cancels it (gated) → polls until the
+    self-emitted `CANCELLATION` webhook settles → proves **no ledger posting** results
+    (**INV-006**: cancel of an uncaptured auth posts nothing).
+- **Async settlement pattern (corrected during verification).** capture/cancel/refund return
+  `202`; the core-api action drives the PSP over HTTP and `payments-sim` **self-emits** the
+  settlement webhook back to core-api off-thread (the "1C-a" emitter), and the per-line
+  ledger posting (`revenuePosted`) lands via the outbox poller (`@Scheduled(fixedDelay=5000)`,
+  ~5s). So each step calls the core-api action (`202`), then **polls** the payment/folio
+  (`setNextRequest` + ~1s bounded delay) until the terminal state — never asserting on the
+  `202`. There is deliberately **no** `/v1/test` capture/cancel/refund trigger: the real PSP
+  endpoints already self-emit, so such a trigger would `409 NO_CAPTURE_QUEUED`. The `/v1/test`
+  **authorise** trigger is still used (folders 02/04/09/12) — there is no core-api "authorise"
+  action, so it stands in for the deferred pay-web checkout.
+- **Negative re-probes (pass-as-designed):** capture without `X-Human-Auth` → 4xx;
+  `completeFolio` while a line is still ACTIVE → 409 with current state.
+- **Pre-existing breakage fixed (folders 03 & 05).** The collection was already red before
+  this change, independent of the new work:
+  - Folders 03 & 05 asserted `f.balance`, a field removed from `FolioResponse` by RX-003 /
+    Flyway `V6` (split into `customerOwes` + `netRevenue`) — corrected to `customerOwes`.
+  - Folder 05 asserted `amountAuthorised == 54000`; the system returns **62000**.
+    `booking.amountAuthorised` is the documented D3 roll-up `SUM(amountAuthorised)` across all
+    payments (a payment keeps its authorised amount after capture), so room `54000` + spa
+    `8000` (IMMEDIATE auth+capture) = `62000`. Corrected the assertion and added a poll for the
+    spa line's `revenuePosted` (it lags via the same outbox poller).
+- **Prereq updated.** The collection description now calls for the smoke overlay
+  (`docker compose -f docker-compose.yml -f docker-compose.smoke.yml up`), which sets
+  `SPRING_PROFILES_ACTIVE=test` on `payments-sim` so the `/v1/test/...` authorise router is
+  reachable.
+
+Proof: ran the whole collection green top-to-bottom with Newman against the four-service
+smoke stack on a fresh DB volume — **125 assertions, 0 failures** (61 requests incl. poll
+re-runs, ~14s); negative probes pass-as-designed.
+
 ## Added — F&B HTTP exercise + Postman booking thread + OpenAPI prose refresh [API-004, ENM-001]
 
 Closed the observability gap on the F&B vertical. `FnbStrategy` shipped already (PR #33) and
