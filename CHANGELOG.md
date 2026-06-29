@@ -4,6 +4,34 @@ Engineering changelog for the hotel-sim POC. Contract freeze/version history liv
 `WAVE0_0X` artifacts' own changelog sections — this file tracks implementation work that is
 not itself a contract change.
 
+## Added — F&B vertical strategy [ENM-001, SCH-013]
+
+Brought the F&B (`FNB`) vertical online with `FnbStrategy`, a strict mirror of the shipped
+`SpaStrategy`. Additive against an already-frozen contract surface — `ENM-001` (the `FNB`
+enum value), `SCH-013` (`product_fnb`), and the `ProductFnb` JPA entity all pre-existed and
+were frozen; no contract change. The strategy completes the third of the four verticals'
+availability/pricing/capture concerns in one place.
+
+- **availability** — `coversCapacity` minus committed overlap, reusing
+  `ProductRepository.countCommittedQuantity` verbatim (no new overlap SQL; the caller
+  supplies the window, exactly as Spa does — no service-period-derived window).
+- **pricing** — `calculateUnitPrice` = `basePrice`; `calculateLineAmount` = `basePrice ×
+  quantity` with **no nights factor** (duration pricing stays a Rooms concern, per
+  `KNOWN_LIMITATION_ROOM_PRICING.md`).
+- **capture** — `defaultCaptureMode()` = `IMMEDIATE`, F&B being the charter's canonical
+  authorise-and-capture-together vertical (charter §6/§11, ENM-004).
+
+Registered via the `VerticalStrategyRegistration` marker interface (registry pickup is
+automatic). One seed F&B product (`Dinner Service`, DINNER, 40 covers, £45.00) added to the
+Postman seed SQL. Deliberately out of scope (deferred, like `spaAttributes` was): an
+`fnbAttributes` block on the availability DTO, any service-period-derived window, and the
+Events strategy.
+
+Proofs: `FnbStrategyTest` (7 cases — full capacity, overlap reduces, adjacency does not,
+CANCELLED excluded, `unitPrice == base` + `IMMEDIATE` + `vertical() == FNB`, `lineAmount ==
+base × qty` across a multi-day window proving no nights leak, non-FNB product rejected).
+Green under Testcontainers; full core-api suite still passing.
+
 ## Added — Folio completion lifecycle: `completeLine` + `completeFolio` (Slice 2) [API-014, API-015, ENM-002, ENM-003, INV-007, RX-003]
 
 Drove the two previously-dead terminal enum values (`BookingStatus.COMPLETED`,

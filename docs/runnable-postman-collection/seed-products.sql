@@ -45,4 +45,13 @@ INSERT INTO product_spa (product_id, treatment_kind, duration_minutes, therapist
 VALUES ('44444444-4444-4444-4444-444444444444', 'FACIAL_45', 45, NULL, 2)
 ON CONFLICT (product_id) DO NOTHING;
 
+-- FNB: Dinner Service — £45.00 (4500 pence), DINNER service period, 40 covers, 120-min seating
+INSERT INTO product (id, vertical, name, active, base_price, currency)
+VALUES ('55555555-5555-5555-5555-555555555555', 'FNB', 'Dinner Service', TRUE, 4500, 'GBP')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO product_fnb (product_id, service_period, covers_capacity, seating_minutes)
+VALUES ('55555555-5555-5555-5555-555555555555', 'DINNER', 40, 120)
+ON CONFLICT (product_id) DO NOTHING;
+
 SELECT id, vertical, name, base_price, currency FROM product ORDER BY name;
