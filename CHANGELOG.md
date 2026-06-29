@@ -4,6 +4,29 @@ Engineering changelog for the hotel-sim POC. Contract freeze/version history liv
 `WAVE0_0X` artifacts' own changelog sections — this file tracks implementation work that is
 not itself a contract change.
 
+## Added — API-004 `fnbAttributes` (Slice A5, draft) [API-004]
+
+Added a nullable `fnbAttributes` object to the `AvailabilityResult` DTO (API-004), the third
+vertical-specific attribute slot alongside `roomAttributes` (ROOM) and `spaAttributes` (SPA,
+Slice A4). It closes the `fnbAttributes` deferral noted when `FnbStrategy` and the F&B HTTP
+exercise shipped — F&B availability rows now carry their own attribute block instead of none.
+
+- **Minimal field set, no schema migration** — `FnbAttributes(servicePeriod, seatingMinutes,
+  coversCapacity)`, read straight from `ProductFnb`. No cuisine/dietary (those would need new
+  `product_fnb` columns; out of scope).
+- **Additive, backward-compatible** — `DtoMapper.toAvailabilityResult` gains an
+  `instanceof ProductFnb` branch; the ROOM and SPA branches are untouched, so existing
+  ROOM/SPA responses are byte-identical. Populated for FNB, null for every other vertical;
+  `roomAttributes`/`spaAttributes` stay null on FNB rows.
+- **Contract amendment is DRAFT, not frozen.** `WAVE0_02_OPENAPI.yaml` (frozen) carries the
+  `fnbAttributes` schema as a `# DRAFT AMENDMENT (Slice A5)` block plus an `amendmentA5`
+  sibling entry under `x-requirements-stage2` API-004 (A3/A4 blocks untouched). The
+  DRAFT→FROZEN flip is Desk's sign-off, deliberately left out of this slice.
+
+Proofs: `FnbAvailabilityApiTest` (MockMvc + Testcontainers) — FNB row carries `fnbAttributes`
+populated (DINNER / 120 / 40) with `roomAttributes` and `spaAttributes` null; ROOM row carries
+no `fnbAttributes` (cross-vertical null integrity). Full `core-api` suite green.
+
 ## Added — full payment-lifecycle Postman coverage (capture / complete / refund / cancel)
 
 Extended the runnable Postman collection

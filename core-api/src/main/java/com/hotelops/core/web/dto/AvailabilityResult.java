@@ -8,9 +8,9 @@ import java.util.UUID;
  * API-004 response item — AvailabilityResult (WAVE0_02_OPENAPI.yaml).
  *
  * unitPrice is MINOR UNITS (pence). availableUnits is the free count in the window after
- * ACTIVE committed lines (INV-003 read side). roomAttributes / spaAttributes are nullable per
- * the contract: each is populated only for its own vertical (ROOM / SPA), null otherwise
- * (API-004 Slice A4 amendment).
+ * ACTIVE committed lines (INV-003 read side). roomAttributes / spaAttributes / fnbAttributes are
+ * nullable per the contract: each is populated only for its own vertical (ROOM / SPA / FNB), null
+ * otherwise (API-004 Slices A4/A5 amendments).
  */
 public record AvailabilityResult(
         UUID productId,
@@ -20,7 +20,8 @@ public record AvailabilityResult(
         String currency,
         int availableUnits,
         RoomAttributes roomAttributes,
-        SpaAttributes spaAttributes
+        SpaAttributes spaAttributes,
+        FnbAttributes fnbAttributes
 ) {
 
     /** Room attributes the operator/model judges on. */
@@ -41,6 +42,19 @@ public record AvailabilityResult(
             int durationMinutes,
             String therapistGender,
             int concurrentSlots
+    ) {
+    }
+
+    /**
+     * F&amp;B attributes the operator/model judges on (API-004 Slice A5). Raw {@code product_fnb}
+     * config — {@code servicePeriod} (e.g. DINNER), {@code seatingMinutes} (table turn), and
+     * {@code coversCapacity} (the inventory figure). No cuisine/dietary (would need a schema
+     * migration; out of scope for this slice).
+     */
+    public record FnbAttributes(
+            String servicePeriod,
+            int seatingMinutes,
+            int coversCapacity
     ) {
     }
 }

@@ -731,6 +731,29 @@ components:
               type: integer
               description: Parallel capacity per slot (inventory figure).
               example: 3
+        fnbAttributes:
+          # DRAFT AMENDMENT (Slice A5) — additive, backward-compatible. NOT FROZEN; awaiting
+          # Desk sign-off (do not build the freeze-flip into this slice). Vertical-specific
+          # attributes for F&B (FNB) products, mirroring spaAttributes for SPA / roomAttributes
+          # for ROOM. Populated for FNB products, null for other verticals; roomAttributes and
+          # spaAttributes stay null for FNB. Existing ROOM/SPA responses are byte-identical. Raw
+          # product_fnb config only (no cuisine/dietary — that would need a schema migration).
+          # See WAVE0_00 §1b (API-004 fnbAttributes row).
+          type: object
+          nullable: true
+          properties:
+            servicePeriod:
+              type: string
+              description: Service period this F&B product is sold in.
+              example: DINNER
+            seatingMinutes:
+              type: integer
+              description: Table-turn duration in minutes.
+              example: 120
+            coversCapacity:
+              type: integer
+              description: Total covers available per service period (inventory figure).
+              example: 40
     BookingCreateRequest:
       type: object
       required:
@@ -1210,10 +1233,21 @@ x-requirements:
         Populated for SPA products, null for other verticals; roomAttributes stays null for SPA.
         Existing ROOM responses are byte-identical; no required-field change; existing clients
         unaffected. Unblocks charter §5 therapist-gender preference matching over availability.'
+    amendmentA5:
+      slice: A5
+      status: DRAFT — awaiting Desk sign-off (see WAVE0_00 §1b API-004 fnbAttributes row)
+      change: 'Additive, backward-compatible — nullable `fnbAttributes` object on
+        AvailabilityResult exposes F&B vertical-specific attributes (servicePeriod,
+        seatingMinutes, coversCapacity), mirroring spaAttributes for SPA / roomAttributes for ROOM.
+        Populated for FNB products, null for other verticals; roomAttributes and spaAttributes
+        stay null for FNB. Existing ROOM/SPA responses are byte-identical; no required-field
+        change; existing clients unaffected. Raw product_fnb config only — no cuisine/dietary
+        (that would need a schema migration). NOT FROZEN; the DRAFT→FROZEN flip is Desk''s.'
     mapsTo:
     - SCH-010
     - SCH-011
     - SCH-012
+    - SCH-013
     - INV-003
   - id: API-005
     requirement: Open an empty folio for a customer.
