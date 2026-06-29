@@ -2,7 +2,7 @@
   "info": {
     "name": "hotel-sim · Scoped Payment Flow (room-on-auth + spa-upfront)",
     "_postman_id": "b7e1a0c2-9d4e-4c8a-9f2b-3a1c5e7d9f01",
-    "description": "Proves the load-bearing Stage-4 payment design:\n\n  * The ROOM line sits on a held MANUAL authorisation (a card imprint at\n    check-in) that is NEVER captured here — capture is the not-yet-built\n    checkout step.\n  * The SPA line is added AFTER the room auth and settled by its OWN,\n    SEPARATE, IMMEDIATE payment, scoped to the spa line via lineCoverage\n    (WHK-016 / payment_line).\n  * Scoped allocation lands the spa revenue on the SPA line only — the room\n    line's revenuePosted stays 0 (auth != revenue; ledger posts on capture).\n\nThis is the baseline the checkout/completeLine slice will build on. When that\nslice lands, the new completion call slots in after folder 05 and re-asserts\nthe room line's revenuePosted flips 0 -> 54000.\n\nPREREQUISITES\n  1. core-api on {{baseUrl}}, payments-sim on {{pspBaseUrl}} (docker compose up).\n  2. payments-sim running with the 'test' profile (so /v1/test/... is live —\n     it stands in for the deferred pay-web customer checkout).\n  3. Products seeded:\n       docker compose exec -T db psql -U hotelops -d hotelops < seed-products.sql\n     (provides ROOM 1111… £180/night and SPA 3333… Couples Massage £80.)\n\nRun the whole collection top-to-bottom (Collection Runner or one request at a\ntime). Variables chain automatically.\n\nMoney is minor units (pence). Room £180 x 3 nights = 54000. Spa £80 = 8000.",
+    "description": "Drives the FULL payment lifecycle end-to-end — scoped link/auth, capture,\nIMMEDIATE settle, folio completion, refund, and cancellation:\n\n  * The ROOM line sits on a held MANUAL authorisation (a card imprint at\n    check-in), then is CAPTURED at checkout (folder 08) — revenue posts on\n    capture, not auth.\n  * The SPA line is added AFTER the room auth and settled by its OWN,\n    SEPARATE, IMMEDIATE payment, scoped to the spa line via lineCoverage\n    (WHK-016 / payment_line).\n  * Scoped allocation lands each payment's revenue on its OWN line — the room\n    line's revenuePosted stays 0 until its capture lands (auth != revenue).\n  * The F&B folio is paid IMMEDIATE (folder 09); both folios are then completed\n    via completeLine + completeFolio (folder 10, incl. an idempotent re-complete\n    that returns 200, not 409).\n  * A partial REFUND of the captured spa payment (folder 11) drops netRevenue\n    but leaves customerOwes at 0 (RX-003: refund reduces net, not settlement).\n  * A CANCELLATION probe (folder 12) mints a fresh uncaptured MANUAL auth and\n    cancels it — no ledger reversal results (INV-006: cancel of an uncaptured\n    auth posts nothing).\n\nASYNC SETTLEMENT PATTERN\n  capture/cancel/refund are asynchronous: the core-api action returns 202 and\n  drives the PSP over HTTP; payments-sim self-emits the settlement webhook back\n  to core-api off-thread, and the per-line ledger posting (revenuePosted) lands\n  via the outbox poller (~5s). So each lifecycle step calls the core-api action\n  (202), then POLLS the payment/folio (setNextRequest + ~1s delay, bounded)\n  until the terminal state (status + revenuePosted), then asserts. Terminal\n  state is NEVER asserted on the 202 response.\n\n  NOTE: there is deliberately NO /v1/test capture|cancel|refund trigger step —\n  the real PSP endpoints (driven by the core-api action) self-emit those\n  webhooks, so a /v1/test trigger would 409 (NO_CAPTURE_QUEUED). The /v1/test\n  AUTHORISE trigger IS used (folders 02/04/09/12): there is no core-api\n  'authorise' action, so it stands in for the deferred pay-web customer\n  checkout, and ?sync=true delivers the AUTHORISATION (+CAPTURE for IMMEDIATE)\n  webhook inline.\n\nNEGATIVE PROBES (pass-as-designed): capture without X-Human-Auth -> 4xx;\n  completeFolio while a line is still ACTIVE -> 409; lineCoverage not summing\n  to amount -> 400; payment without X-Human-Auth -> 4xx.\n\nPREREQUISITES\n  1. core-api on {{baseUrl}}, payments-sim on {{pspBaseUrl}}, brought up under\n     the smoke overlay so the test-trigger router is live:\n       docker compose -f docker-compose.yml -f docker-compose.smoke.yml up\n     (the overlay sets SPRING_PROFILES_ACTIVE=test on payments-sim, so\n     /v1/test/... is reachable — it stands in for the deferred pay-web checkout).\n  2. Products seeded:\n       docker compose exec -T db psql -U hotelops -d hotelops < seed-products.sql\n     (ROOM 1111… £180/night, SPA 3333… Couples Massage £80, FNB 5555… Dinner\n     £45/cover, 40 covers.)\n\nRun the whole collection top-to-bottom (Collection Runner or Newman). Variables\nchain automatically. Allow ~15-20s — the lifecycle folders poll for async\nsettlement (run a fresh DB volume to avoid accumulated-inventory drift).\n\nMoney is minor units (pence). Room £180 x 3 nights = 54000. Spa £80 = 8000.\nF&B £45 x 2 covers = 9000. Partial refund = 3000.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -31,7 +31,17 @@
     { "key": "fnbAmount", "value": "9000" },
     { "key": "fnbCustomerId", "value": "" },
     { "key": "fnbBookingId", "value": "" },
-    { "key": "fnbLineId", "value": "" }
+    { "key": "fnbLineId", "value": "" },
+    { "key": "fnbPaymentId", "value": "" },
+    { "key": "fnbPaymentLinkId", "value": "" },
+    { "key": "refundAmount", "value": "3000" },
+    { "key": "refundMerchantRef", "value": "" },
+    { "key": "cancelStartsAt", "value": "2026-07-20T14:00:00Z" },
+    { "key": "cancelEndsAt", "value": "2026-07-20T15:00:00Z" },
+    { "key": "cancelBookingId", "value": "" },
+    { "key": "cancelLineId", "value": "" },
+    { "key": "cancelPaymentId", "value": "" },
+    { "key": "cancelPaymentLinkId", "value": "" }
   ],
   "item": [
     {
@@ -320,7 +330,7 @@
                   "const f = pm.response.json();",
                   "pm.test('totalAmount == 62000 (room 540 + spa 80)', () => pm.expect(f.totalAmount).to.eql(62000));",
                   "pm.test('amountAuthorised STILL 54000 (spa uncovered — the gap)', () => pm.expect(f.amountAuthorised).to.eql(54000));",
-                  "pm.test('balance == 62000 (nothing captured)', () => pm.expect(f.balance).to.eql(62000));"
+                  "pm.test('customerOwes == 62000 (nothing captured)', () => pm.expect(f.customerOwes).to.eql(62000));"
                 ],
                 "type": "text/javascript"
               }
@@ -440,20 +450,30 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "// Ledger postings (revenuePosted) land via the outbox poller (~5s), so poll the folio.",
+                  "const KEY = 'pollSpaFolio';",
+                  "const MAX = 20;",
+                  "let n = Number(pm.collectionVariables.get(KEY) || 0);",
                   "const f = pm.response.json();",
-                  "const room = f.lines.find(l => l.id === pm.collectionVariables.get('roomLineId'));",
-                  "const spa  = f.lines.find(l => l.id === pm.collectionVariables.get('spaLineId'));",
-                  "",
-                  "// THE PROOF: spa revenue went to the SPA line, not the room line that sorts first.",
-                  "pm.test('SPA line revenuePosted == 8000 (settled)', () => pm.expect(spa.revenuePosted).to.eql(8000));",
-                  "pm.test('ROOM line revenuePosted == 0 (held auth, not captured)', () => pm.expect(room.revenuePosted).to.eql(0));",
-                  "",
-                  "// Folio rollups corroborate.",
-                  "pm.test('amountPaid == 8000 (only the spa captured)', () => pm.expect(f.amountPaid).to.eql(8000));",
-                  "pm.test('amountAuthorised == 54000 (room hold intact)', () => pm.expect(f.amountAuthorised).to.eql(54000));",
-                  "pm.test('balance == 54000 (room still owed)', () => pm.expect(f.balance).to.eql(54000));",
-                  "pm.test('booking still CONFIRMED (no completion yet)', () => pm.expect(f.status).to.eql('CONFIRMED'));"
+                  "const spa = (f.lines || []).find(l => l.id === pm.collectionVariables.get('spaLineId'));",
+                  "const settled = pm.response.code === 200 && spa && spa.revenuePosted === 8000;",
+                  "if (!settled && n < MAX) {",
+                  "  pm.collectionVariables.set(KEY, String(n + 1));",
+                  "  setTimeout(() => {}, 1000);",
+                  "  pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.collectionVariables.set(KEY, '0');",
+                  "  const room = f.lines.find(l => l.id === pm.collectionVariables.get('roomLineId'));",
+                  "  pm.test('200', () => pm.response.to.have.status(200));",
+                  "  // THE PROOF: spa revenue went to the SPA line, not the room line that sorts first.",
+                  "  pm.test('SPA line revenuePosted == 8000 (settled)', () => pm.expect(spa.revenuePosted).to.eql(8000));",
+                  "  pm.test('ROOM line revenuePosted == 0 (held auth, not captured)', () => pm.expect(room.revenuePosted).to.eql(0));",
+                  "  // Folio rollups corroborate.",
+                  "  pm.test('amountPaid == 8000 (only the spa captured)', () => pm.expect(f.amountPaid).to.eql(8000));",
+                  "  pm.test('amountAuthorised == 62000 (D3 sums all payments: room 54000 held + spa 8000 auth+captured)', () => pm.expect(f.amountAuthorised).to.eql(62000));",
+                  "  pm.test('customerOwes == 54000 (room still owed)', () => pm.expect(f.customerOwes).to.eql(54000));",
+                  "  pm.test('booking still CONFIRMED (no completion yet)', () => pm.expect(f.status).to.eql('CONFIRMED'));",
+                  "}"
                 ],
                 "type": "text/javascript"
               }
@@ -696,6 +716,812 @@
               "raw": "{{baseUrl}}/bookings/{{fnbBookingId}}",
               "host": ["{{baseUrl}}"],
               "path": ["bookings", "{{fnbBookingId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 · Capture the room (MANUAL → revenue posts on capture)",
+      "item": [
+        {
+          "name": "1 · Request capture of the room auth (202, async)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('202 Accepted (capture requested; PSP self-emits the CAPTURE webhook)', () => pm.response.to.have.status(202));",
+                  "const p = pm.response.json();",
+                  "// Do NOT assert CAPTURED here — settlement lands async on the self-emitted webhook (Trap A).",
+                  "pm.test('pspReference present (stamped at auth)', () => pm.expect(p.pspReference).to.match(/^PSP-[0-9A-Za-z]{16}$/));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Human-Auth", "value": "{{humanAuthToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{baseUrl}}/payments/{{roomPaymentId}}/capture",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "{{roomPaymentId}}", "capture"]
+            }
+          }
+        },
+        {
+          "name": "2 · Poll room payment until CAPTURED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const KEY = 'pollRoomPay';",
+                  "const MAX = 20;",
+                  "let n = Number(pm.collectionVariables.get(KEY) || 0);",
+                  "const p = pm.response.json();",
+                  "const settled = pm.response.code === 200 && p.status === 'CAPTURED' && p.amountCaptured === 54000;",
+                  "if (!settled && n < MAX) {",
+                  "  pm.collectionVariables.set(KEY, String(n + 1));",
+                  "  setTimeout(() => {}, 1000);",
+                  "  pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.collectionVariables.set(KEY, '0');",
+                  "  pm.test('status CAPTURED after self-emitted webhook', () => pm.expect(p.status).to.eql('CAPTURED'));",
+                  "  pm.test('amountCaptured == 54000', () => pm.expect(p.amountCaptured).to.eql(54000));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/payments/{{roomPaymentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "{{roomPaymentId}}"]
+            }
+          }
+        },
+        {
+          "name": "3 · Poll folio until ROOM revenue posts (0 → 54000)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const KEY = 'pollRoomFolio';",
+                  "const MAX = 20;",
+                  "let n = Number(pm.collectionVariables.get(KEY) || 0);",
+                  "const f = pm.response.json();",
+                  "const room = (f.lines || []).find(l => l.id === pm.collectionVariables.get('roomLineId'));",
+                  "const settled = pm.response.code === 200 && room && room.revenuePosted === 54000;",
+                  "if (!settled && n < MAX) {",
+                  "  pm.collectionVariables.set(KEY, String(n + 1));",
+                  "  setTimeout(() => {}, 1000);",
+                  "  pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.collectionVariables.set(KEY, '0');",
+                  "  pm.test('ROOM line revenuePosted flipped 0 -> 54000', () => pm.expect(room.revenuePosted).to.eql(54000));",
+                  "  pm.test('amountPaid == 62000 (room 540 + spa 80 both captured)', () => pm.expect(f.amountPaid).to.eql(62000));",
+                  "  pm.test('customerOwes == 0 (folio settled)', () => pm.expect(f.customerOwes).to.eql(0));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}"]
+            }
+          }
+        },
+        {
+          "name": "4 · [NEG] Capture without X-Human-Auth → rejected (gate)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('rejected without human-auth (4xx)', () => pm.expect(pm.response.code).to.be.oneOf([401, 428]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{baseUrl}}/payments/{{roomPaymentId}}/capture",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "{{roomPaymentId}}", "capture"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 · Pay the F&B folio (IMMEDIATE → captured in one step)",
+      "item": [
+        {
+          "name": "1 · Create F&B payment (IMMEDIATE, scoped to F&B line)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const p = pm.response.json();",
+                  "pm.test('captureMode IMMEDIATE', () => pm.expect(p.captureMode).to.eql('IMMEDIATE'));",
+                  "pm.collectionVariables.set('fnbPaymentId', p.id);",
+                  "pm.collectionVariables.set('fnbPaymentLinkId', p.paymentLinkId);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Human-Auth", "value": "{{humanAuthToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 9000,\n  \"currency\": \"GBP\",\n  \"captureMode\": \"IMMEDIATE\",\n  \"lineCoverage\": [\n    { \"bookingLineId\": \"{{fnbLineId}}\", \"amount\": 9000 }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{fnbBookingId}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{fnbBookingId}}", "payments"]
+            }
+          }
+        },
+        {
+          "name": "2 · [SIM] Customer pays F&B link (IMMEDIATE → auth+capture chain)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 (sync)', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test('sim minted pspReference', () => pm.expect(r.pspReference).to.match(/^PSP-[0-9A-Za-z]{16}$/));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{pspBaseUrl}}/v1/test/payment-links/{{fnbPaymentLinkId}}/authorise?sync=true",
+              "host": ["{{pspBaseUrl}}"],
+              "path": ["v1", "test", "payment-links", "{{fnbPaymentLinkId}}", "authorise"],
+              "query": [{ "key": "sync", "value": "true" }]
+            }
+          }
+        },
+        {
+          "name": "3 · Get F&B payment — expect CAPTURED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json();",
+                  "pm.test('F&B payment CAPTURED', () => pm.expect(p.status).to.eql('CAPTURED'));",
+                  "pm.test('amountCaptured == 9000', () => pm.expect(p.amountCaptured).to.eql(9000));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/payments/{{fnbPaymentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "{{fnbPaymentId}}"]
+            }
+          }
+        },
+        {
+          "name": "4 · Poll F&B folio until line revenue posts (9000)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const KEY = 'pollFnbFolio';",
+                  "const MAX = 20;",
+                  "let n = Number(pm.collectionVariables.get(KEY) || 0);",
+                  "const f = pm.response.json();",
+                  "const fnb = (f.lines || []).find(l => l.id === pm.collectionVariables.get('fnbLineId'));",
+                  "const settled = pm.response.code === 200 && fnb && fnb.revenuePosted === 9000;",
+                  "if (!settled && n < MAX) {",
+                  "  pm.collectionVariables.set(KEY, String(n + 1));",
+                  "  setTimeout(() => {}, 1000);",
+                  "  pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.collectionVariables.set(KEY, '0');",
+                  "  pm.test('F&B line revenuePosted == 9000', () => pm.expect(fnb.revenuePosted).to.eql(9000));",
+                  "  pm.test('customerOwes == 0 (F&B settled)', () => pm.expect(f.customerOwes).to.eql(0));",
+                  "  pm.test('netRevenue == 9000', () => pm.expect(f.netRevenue).to.eql(9000));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{fnbBookingId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{fnbBookingId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 · Complete the folios (lines → folio; idempotent re-complete)",
+      "item": [
+        {
+          "name": "1 · [NEG] completeFolio while lines still ACTIVE → 409 (C1)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('409 — not completable while a line is ACTIVE', () => pm.response.to.have.status(409));",
+                  "const e = pm.response.json();",
+                  "pm.test('conflict reports current state', () => pm.expect(JSON.stringify(e)).to.match(/customerOwes|line|Completable/i));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Human-Auth", "value": "{{humanAuthToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}/complete",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}", "complete"]
+            }
+          }
+        },
+        {
+          "name": "2 · Complete the ROOM line (ungated — no X-Human-Auth)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const f = pm.response.json();",
+                  "const room = f.lines.find(l => l.id === pm.collectionVariables.get('roomLineId'));",
+                  "pm.test('room line COMPLETED', () => pm.expect(room.status).to.eql('COMPLETED'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}/lines/{{roomLineId}}/complete",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}", "lines", "{{roomLineId}}", "complete"]
+            }
+          }
+        },
+        {
+          "name": "3 · Complete the SPA line (ungated — no X-Human-Auth)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const f = pm.response.json();",
+                  "const spa = f.lines.find(l => l.id === pm.collectionVariables.get('spaLineId'));",
+                  "pm.test('spa line COMPLETED', () => pm.expect(spa.status).to.eql('COMPLETED'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}/lines/{{spaLineId}}/complete",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}", "lines", "{{spaLineId}}", "complete"]
+            }
+          }
+        },
+        {
+          "name": "4 · completeFolio (gated) → COMPLETED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const f = pm.response.json();",
+                  "pm.test('booking COMPLETED', () => pm.expect(f.status).to.eql('COMPLETED'));",
+                  "pm.test('customerOwes == 0 at completion (C2)', () => pm.expect(f.customerOwes).to.eql(0));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Human-Auth", "value": "{{humanAuthToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}/complete",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}", "complete"]
+            }
+          }
+        },
+        {
+          "name": "5 · [IDEMPOTENT] Re-complete the same folio → 200, not 409",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 (idempotent re-complete, NOT 409)', () => pm.response.to.have.status(200));",
+                  "const f = pm.response.json();",
+                  "pm.test('still COMPLETED', () => pm.expect(f.status).to.eql('COMPLETED'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Human-Auth", "value": "{{humanAuthToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}/complete",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}", "complete"]
+            }
+          }
+        },
+        {
+          "name": "6 · Complete the F&B line (ungated)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const f = pm.response.json();",
+                  "const fnb = f.lines.find(l => l.id === pm.collectionVariables.get('fnbLineId'));",
+                  "pm.test('F&B line COMPLETED', () => pm.expect(fnb.status).to.eql('COMPLETED'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{fnbBookingId}}/lines/{{fnbLineId}}/complete",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{fnbBookingId}}", "lines", "{{fnbLineId}}", "complete"]
+            }
+          }
+        },
+        {
+          "name": "7 · completeFolio the F&B booking (gated) → COMPLETED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const f = pm.response.json();",
+                  "pm.test('F&B booking COMPLETED', () => pm.expect(f.status).to.eql('COMPLETED'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Human-Auth", "value": "{{humanAuthToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{fnbBookingId}}/complete",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{fnbBookingId}}", "complete"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "11 · Refund probe (partial — net drops, owes unchanged)",
+      "item": [
+        {
+          "name": "1 · Request partial refund of the spa payment (202, async)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('202 Accepted (refund requested; PSP self-emits the REFUND webhook)', () => pm.response.to.have.status(202));",
+                  "const r = pm.response.json();",
+                  "pm.test('refund amount == 3000', () => pm.expect(r.amount).to.eql(3000));",
+                  "pm.test('refund merchantReference minted', () => pm.expect(r.merchantReference).to.be.a('string').and.not.empty);",
+                  "pm.collectionVariables.set('refundMerchantRef', r.merchantReference);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Human-Auth", "value": "{{humanAuthToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": {{refundAmount}},\n  \"reason\": \"goodwill partial refund\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments/{{spaPaymentId}}/refunds",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "{{spaPaymentId}}", "refunds"]
+            }
+          }
+        },
+        {
+          "name": "2 · Poll spa payment until refund settles (REFUNDED)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const KEY = 'pollRefundPay';",
+                  "const MAX = 20;",
+                  "let n = Number(pm.collectionVariables.get(KEY) || 0);",
+                  "const p = pm.response.json();",
+                  "const refund = (p.refunds || []).find(r => r.merchantReference === pm.collectionVariables.get('refundMerchantRef'));",
+                  "const settled = pm.response.code === 200 && p.amountRefunded === 3000 && refund && refund.status === 'REFUNDED';",
+                  "if (!settled && n < MAX) {",
+                  "  pm.collectionVariables.set(KEY, String(n + 1));",
+                  "  setTimeout(() => {}, 1000);",
+                  "  pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.collectionVariables.set(KEY, '0');",
+                  "  pm.test('amountRefunded == 3000', () => pm.expect(p.amountRefunded).to.eql(3000));",
+                  "  pm.test('child refund REFUNDED', () => pm.expect(refund.status).to.eql('REFUNDED'));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/payments/{{spaPaymentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "{{spaPaymentId}}"]
+            }
+          }
+        },
+        {
+          "name": "3 · Poll folio until refund reflected (net drops, owes unchanged — RX-003)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const KEY = 'pollRefundFolio';",
+                  "const MAX = 20;",
+                  "let n = Number(pm.collectionVariables.get(KEY) || 0);",
+                  "const f = pm.response.json();",
+                  "const settled = pm.response.code === 200 && f.amountRefunded === 3000;",
+                  "if (!settled && n < MAX) {",
+                  "  pm.collectionVariables.set(KEY, String(n + 1));",
+                  "  setTimeout(() => {}, 1000);",
+                  "  pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.collectionVariables.set(KEY, '0');",
+                  "  pm.test('amountRefunded == 3000', () => pm.expect(f.amountRefunded).to.eql(3000));",
+                  "  pm.test('netRevenue == 59000 (62000 paid - 3000 refunded)', () => pm.expect(f.netRevenue).to.eql(59000));",
+                  "  pm.test('customerOwes STILL 0 (refund reduces net, not settlement)', () => pm.expect(f.customerOwes).to.eql(0));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "12 · Cancel probe (fresh uncaptured MANUAL auth → no posting)",
+      "item": [
+        {
+          "name": "1 · Open a throwaway booking (same customer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const f = pm.response.json();",
+                  "pm.test('booking PENDING', () => pm.expect(f.status).to.eql('PENDING'));",
+                  "pm.collectionVariables.set('cancelBookingId', f.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"currency\": \"GBP\"\n}" },
+            "url": { "raw": "{{baseUrl}}/bookings", "host": ["{{baseUrl}}"], "path": ["bookings"] }
+          }
+        },
+        {
+          "name": "2 · Add a SPA line at a non-overlapping window",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const f = pm.response.json();",
+                  "const spa = f.lines.find(l => l.productId === pm.collectionVariables.get('spaProductId'));",
+                  "pm.test('throwaway spa line ACTIVE', () => pm.expect(spa.status).to.eql('ACTIVE'));",
+                  "pm.collectionVariables.set('cancelLineId', spa.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": \"{{spaProductId}}\",\n  \"startsAt\": \"{{cancelStartsAt}}\",\n  \"endsAt\": \"{{cancelEndsAt}}\",\n  \"quantity\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{cancelBookingId}}/lines",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{cancelBookingId}}", "lines"]
+            }
+          }
+        },
+        {
+          "name": "3 · Create a MANUAL payment (scoped to the throwaway line)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const p = pm.response.json();",
+                  "pm.test('captureMode MANUAL', () => pm.expect(p.captureMode).to.eql('MANUAL'));",
+                  "pm.collectionVariables.set('cancelPaymentId', p.id);",
+                  "pm.collectionVariables.set('cancelPaymentLinkId', p.paymentLinkId);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Human-Auth", "value": "{{humanAuthToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 8000,\n  \"currency\": \"GBP\",\n  \"captureMode\": \"MANUAL\",\n  \"lineCoverage\": [\n    { \"bookingLineId\": \"{{cancelLineId}}\", \"amount\": 8000 }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{cancelBookingId}}/payments",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{cancelBookingId}}", "payments"]
+            }
+          }
+        },
+        {
+          "name": "4 · [SIM] Authorise the link (MANUAL → AUTHORISED, not captured)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 (sync) authorised', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "pm.test('sim minted pspReference', () => pm.expect(r.pspReference).to.match(/^PSP-[0-9A-Za-z]{16}$/));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{pspBaseUrl}}/v1/test/payment-links/{{cancelPaymentLinkId}}/authorise?sync=true",
+              "host": ["{{pspBaseUrl}}"],
+              "path": ["v1", "test", "payment-links", "{{cancelPaymentLinkId}}", "authorise"],
+              "query": [{ "key": "sync", "value": "true" }]
+            }
+          }
+        },
+        {
+          "name": "5 · Get payment — expect AUTHORISED (held, uncaptured)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json();",
+                  "pm.test('status AUTHORISED (uncaptured)', () => pm.expect(p.status).to.eql('AUTHORISED'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/payments/{{cancelPaymentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "{{cancelPaymentId}}"]
+            }
+          }
+        },
+        {
+          "name": "6 · Request cancellation (gated, 202 async)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('202 Accepted (cancel requested; PSP self-emits the CANCELLATION webhook)', () => pm.response.to.have.status(202));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Human-Auth", "value": "{{humanAuthToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/payments/{{cancelPaymentId}}/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "{{cancelPaymentId}}", "cancel"]
+            }
+          }
+        },
+        {
+          "name": "7 · Poll payment until CANCELLED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const KEY = 'pollCancelPay';",
+                  "const MAX = 20;",
+                  "let n = Number(pm.collectionVariables.get(KEY) || 0);",
+                  "const p = pm.response.json();",
+                  "const settled = pm.response.code === 200 && p.status === 'CANCELLED';",
+                  "if (!settled && n < MAX) {",
+                  "  pm.collectionVariables.set(KEY, String(n + 1));",
+                  "  setTimeout(() => {}, 1000);",
+                  "  pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.collectionVariables.set(KEY, '0');",
+                  "  pm.test('status CANCELLED after self-emitted webhook', () => pm.expect(p.status).to.eql('CANCELLED'));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/payments/{{cancelPaymentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["payments", "{{cancelPaymentId}}"]
+            }
+          }
+        },
+        {
+          "name": "8 · PROOF — no ledger posting from a cancelled auth (INV-006)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const f = pm.response.json();",
+                  "const line = f.lines.find(l => l.id === pm.collectionVariables.get('cancelLineId'));",
+                  "pm.test('cancelled-auth line revenuePosted == 0 (auth != revenue)', () => pm.expect(line.revenuePosted).to.eql(0));",
+                  "pm.test('amountPaid == 0 (nothing captured)', () => pm.expect(f.amountPaid).to.eql(0));",
+                  "pm.test('netRevenue == 0 (no reversal — nothing was posted)', () => pm.expect(f.netRevenue).to.eql(0));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{cancelBookingId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{cancelBookingId}}"]
             }
           }
         }
