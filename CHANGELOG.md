@@ -4,6 +4,34 @@ Engineering changelog for the hotel-sim POC. Contract freeze/version history liv
 `WAVE0_0X` artifacts' own changelog sections — this file tracks implementation work that is
 not itself a contract change.
 
+## Added — F&B HTTP exercise + Postman booking thread + OpenAPI prose refresh [API-004, ENM-001]
+
+Closed the observability gap on the F&B vertical. `FnbStrategy` shipped already (PR #33) and
+is HTTP-reachable through the generic `AvailabilityController` / `BookingService` — both
+dispatch via the vertical strategy registry, and a line's vertical is derived from its
+product, so F&B is bookable over the existing `/availability` + `/bookings/{id}/lines`
+endpoints with no F&B-specific controller (charter §2: no vertical-only endpoints). The gap
+was that nothing *exercised* the wired path. Strictly additive; no new contract freeze.
+
+- **API-level test** — `FnbAvailabilityApiTest` (MockMvc + Testcontainers, with the same
+  Docker `@BeforeAll` guard as `SpaAvailabilityApiTest`): `GET /availability?vertical=FNB`
+  returns `coversCapacity` minus committed overlap; a 2-cover line booked via the generic
+  `POST /bookings/{id}/lines` drops `availableUnits` by 2 and is priced `base × quantity`
+  (9000 = 4500 × 2, **no nights factor**); the availability row carries **neither**
+  `roomAttributes` **nor** `spaAttributes` (`fnbAttributes` deferred — F&B did not inherit
+  another vertical's attribute block); ROOM availability is unbroken (regression).
+- **Runnable Postman thread** — appended folder `07 · F&B booking thread` (availability →
+  customer → folio → F&B line → folio shows the line priced `base × quantity`). Booking
+  only; the IMMEDIATE pay/capture loop is already proven generically and is out of scope here.
+- **OpenAPI prose refresh** — three stale descriptive lines in the frozen
+  `WAVE0_02_OPENAPI.yaml` ("ROOM and SPA exercised; FNB … reserved") refreshed to "ROOM,
+  SPA, and FNB are exercised; EVENT reserved for a later slice." Text-only, arbiter-approved
+  logged edit to a frozen artifact (`WAVE0_00 §1b` + §7); no schema/enum/path/DTO change, no
+  ID minted, not a re-freeze.
+
+Proofs: `FnbAvailabilityApiTest` (green under Testcontainers); Postman folder `07 · F&B
+booking thread` runnable end-to-end against the compose stack; full core-api suite passing.
+
 ## Added — F&B vertical strategy [ENM-001, SCH-013]
 
 Brought the F&B (`FNB`) vertical online with `FnbStrategy`, a strict mirror of the shipped

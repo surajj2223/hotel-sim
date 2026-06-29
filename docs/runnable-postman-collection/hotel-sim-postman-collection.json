@@ -24,7 +24,14 @@
     { "key": "roomPaymentId", "value": "" },
     { "key": "roomPaymentLinkId", "value": "" },
     { "key": "spaPaymentId", "value": "" },
-    { "key": "spaPaymentLinkId", "value": "" }
+    { "key": "spaPaymentLinkId", "value": "" },
+    { "key": "fnbProductId", "value": "55555555-5555-5555-5555-555555555555" },
+    { "key": "fnbStartsAt", "value": "2026-07-10T19:00:00Z" },
+    { "key": "fnbEndsAt", "value": "2026-07-10T20:00:00Z" },
+    { "key": "fnbAmount", "value": "9000" },
+    { "key": "fnbCustomerId", "value": "" },
+    { "key": "fnbBookingId", "value": "" },
+    { "key": "fnbLineId", "value": "" }
   ],
   "item": [
     {
@@ -521,6 +528,174 @@
               "raw": "{{baseUrl}}/bookings/{{bookingId}}/payments",
               "host": ["{{baseUrl}}"],
               "path": ["bookings", "{{bookingId}}", "payments"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 · F&B booking thread (vertical wired via the generic endpoints)",
+      "item": [
+        {
+          "name": "1 · Availability — F&B covers + price (DINNER seed)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const rows = pm.response.json();",
+                  "const fnb = rows.find(r => r.productId === pm.collectionVariables.get('fnbProductId'));",
+                  "pm.test('F&B product present', () => pm.expect(fnb).to.be.an('object'));",
+                  "pm.test('vertical FNB', () => pm.expect(fnb.vertical).to.eql('FNB'));",
+                  "pm.test('unitPrice £45.00 (4500)', () => pm.expect(fnb.unitPrice).to.eql(4500));",
+                  "pm.test('40 covers free (no overlap)', () => pm.expect(fnb.availableUnits).to.eql(40));",
+                  "pm.test('no roomAttributes (not a Room)', () => pm.expect(fnb.roomAttributes == null).to.be.true);",
+                  "pm.test('no spaAttributes (fnbAttributes deferred)', () => pm.expect(fnb.spaAttributes == null).to.be.true);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/availability?vertical=FNB&startsAt={{fnbStartsAt}}&endsAt={{fnbEndsAt}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["availability"],
+              "query": [
+                { "key": "vertical", "value": "FNB" },
+                { "key": "startsAt", "value": "{{fnbStartsAt}}" },
+                { "key": "endsAt", "value": "{{fnbEndsAt}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "2 · Create customer (Frank Diner)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const b = pm.response.json();",
+                  "pm.test('shopperReference minted', () => pm.expect(b.shopperReference).to.match(/^SHPR-/));",
+                  "pm.collectionVariables.set('fnbCustomerId', b.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Frank Diner\",\n  \"email\": \"frank.diner@example.com\",\n  \"phone\": \"+44 7700 900456\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/customers",
+              "host": ["{{baseUrl}}"],
+              "path": ["customers"]
+            }
+          }
+        },
+        {
+          "name": "3 · Open empty folio (booking)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const f = pm.response.json();",
+                  "pm.test('booking PENDING with no lines', () => pm.expect(f.status).to.eql('PENDING'));",
+                  "pm.collectionVariables.set('fnbBookingId', f.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"{{fnbCustomerId}}\",\n  \"currency\": \"GBP\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings"]
+            }
+          }
+        },
+        {
+          "name": "4 · Add F&B line (2 covers, £90)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const f = pm.response.json();",
+                  "const fnb = f.lines.find(l => l.productId === pm.collectionVariables.get('fnbProductId'));",
+                  "pm.test('F&B line present', () => pm.expect(fnb).to.be.an('object'));",
+                  "pm.test('F&B line ACTIVE', () => pm.expect(fnb.status).to.eql('ACTIVE'));",
+                  "pm.test('F&B line is base × quantity = 9000 (no nights factor)', () => pm.expect(fnb.lineAmount).to.eql(9000));",
+                  "pm.collectionVariables.set('fnbLineId', fnb.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": \"{{fnbProductId}}\",\n  \"startsAt\": \"{{fnbStartsAt}}\",\n  \"endsAt\": \"{{fnbEndsAt}}\",\n  \"quantity\": 2\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{fnbBookingId}}/lines",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{fnbBookingId}}", "lines"]
+            }
+          }
+        },
+        {
+          "name": "5 · Get folio — F&B line landed via the generic path",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const f = pm.response.json();",
+                  "const fnb = f.lines.find(l => l.productId === pm.collectionVariables.get('fnbProductId'));",
+                  "pm.test('F&B line on folio', () => pm.expect(fnb).to.be.an('object'));",
+                  "pm.test('priced base × quantity (9000), no nights factor', () => pm.expect(fnb.lineAmount).to.eql(9000));",
+                  "pm.test('totalAmount == 9000', () => pm.expect(f.totalAmount).to.eql(9000));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{fnbBookingId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{fnbBookingId}}"]
             }
           }
         }
