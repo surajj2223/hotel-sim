@@ -102,7 +102,7 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/Vertical'
-        description: All registered verticals are supported; resolved via the vertical strategy registry. ROOM and SPA are exercised (Slice A3); FNB and EVENT reserved for later slices.
+        description: All registered verticals are supported; resolved via the vertical strategy registry. ROOM, SPA, and FNB are exercised; EVENT reserved for a later slice.
       - name: startsAt
         in: query
         required: true
@@ -523,7 +523,7 @@ components:
       - SPA
       - FNB
       - EVENT
-      description: ENM-001. ROOM and SPA are exercised; FNB and EVENT reserved for later slices.
+      description: ENM-001. ROOM, SPA, and FNB are exercised; EVENT reserved for a later slice.
     BookingStatus:
       type: string
       enum:
@@ -1199,8 +1199,8 @@ x-requirements:
   - id: API-004
     requirement: Search availability for a window, for any supported vertical.
     acceptance: Returns availableUnits computed from ACTIVE committed lines via the vertical strategy
-      registry; roomAttributes populated for ROOM products, null for other verticals; ROOM and SPA
-      exercised (Slice A3).
+      registry; roomAttributes populated for ROOM products, null for other verticals; ROOM, SPA,
+      and FNB exercised.
     amendment:
       slice: A4
       status: FROZEN on Desk sign-off (see WAVE0_00 §1b API-004 spaAttributes row)
