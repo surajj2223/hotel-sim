@@ -1923,6 +1923,120 @@
           }
         }
       ]
+    },
+    {
+      "name": "R \u00b7 Reports (getRevenue + listUnpaidBookings)",
+      "item": [
+        {
+          "name": "1 \u00b7 getRevenue over the run window \u2014 71000 split by vertical",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/reports/revenue?from=2000-01-01T00:00:00Z&to=2100-01-01T00:00:00Z",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "revenue"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "2000-01-01T00:00:00Z"
+                },
+                {
+                  "key": "to",
+                  "value": "2100-01-01T00:00:00Z"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "const v = name => r.byVertical.find(x => x.vertical === name);",
+                  "// Wide window over a fresh-volume run: the only postings are this collection's three captures.",
+                  "pm.test('currency GBP', () => pm.expect(r.currency).to.eql('GBP'));",
+                  "pm.test('ROOM gross 54000, net 54000, no refund', () => {",
+                  "  const room = v('ROOM');",
+                  "  pm.expect(room.gross).to.eql(54000);",
+                  "  pm.expect(room.refundedTotal).to.eql(0);",
+                  "  pm.expect(room.net).to.eql(54000);",
+                  "});",
+                  "pm.test('SPA gross 8000, net 8000', () => {",
+                  "  const spa = v('SPA');",
+                  "  pm.expect(spa.gross).to.eql(8000);",
+                  "  pm.expect(spa.net).to.eql(8000);",
+                  "});",
+                  "pm.test('FNB gross 9000, net 9000', () => {",
+                  "  const fnb = v('FNB');",
+                  "  pm.expect(fnb.gross).to.eql(9000);",
+                  "  pm.expect(fnb.net).to.eql(9000);",
+                  "});",
+                  "pm.test('totals: net == gross == 71000, refundedTotal 0 (no refund in the spine)', () => {",
+                  "  pm.expect(r.totals.gross).to.eql(71000);",
+                  "  pm.expect(r.totals.refundedTotal).to.eql(0);",
+                  "  pm.expect(r.totals.net).to.eql(71000);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2 \u00b7 listUnpaidBookings \u2014 settled spine gone; cancelled-auth folio still owes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/reports/unpaid-bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "unpaid-bookings"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const r = pm.response.json();",
+                  "const find = id => r.bookings.find(b => b.bookingId === pm.collectionVariables.get(id));",
+                  "// The spine folio is COMPLETED and fully settled (customerOwes 0) -> it has dropped off the worklist.",
+                  "pm.test('settled spine folio is NOT in the unpaid worklist', () => pm.expect(find('bookingId')).to.eql(undefined));",
+                  "// P5's throwaway folio held a MANUAL auth that was then CANCELLED. It still owes the full line:",
+                  "// a held (let alone cancelled) authorisation never reduces owes, and a cancelled auth leaves no",
+                  "// AUTHORISED payment_line, so lineHeldAuth is 0 too. Proves the captured-only owes rule over HTTP.",
+                  "const cancelBk = find('cancelBookingId');",
+                  "pm.test('cancelled-auth folio IS still on the worklist (customerOwes > 0)', () => {",
+                  "  pm.expect(cancelBk, 'cancel booking present').to.not.eql(undefined);",
+                  "  pm.expect(cancelBk.customerOwes).to.be.above(0);",
+                  "});",
+                  "pm.test('its line: revenue 0, held 0 (auth cancelled), owes == full lineAmount', () => {",
+                  "  const line = cancelBk.lines.find(l => l.lineId === pm.collectionVariables.get('cancelLineId'));",
+                  "  pm.expect(line.lineRevenuePosted).to.eql(0);",
+                  "  pm.expect(line.lineHeldAuth).to.eql(0);",
+                  "  pm.expect(line.lineOwes).to.eql(line.lineAmount);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ],
   "variable": [
