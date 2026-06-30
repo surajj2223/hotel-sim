@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -30,4 +31,18 @@ public interface LedgerPostingRepository extends JpaRepository<LedgerPosting, UU
             @Param("type") PostingType type,
             @Param("from") OffsetDateTime from,
             @Param("to") OffsetDateTime to);
+
+    /**
+     * API-017 listUnpaidBookings — per-line captured REVENUE total, batched across all unpaid
+     * lines (one GROUP BY, no N+1). Rows are {@code [bookingLineId(UUID), sum(amount)(Long)]}.
+     * REVENUE only — a held authorisation posts no ledger row, so it cannot reduce lineOwes.
+     */
+    @Query("""
+           SELECT lp.bookingLine.id, SUM(lp.amount)
+           FROM LedgerPosting lp
+           WHERE lp.postingType = com.hotelops.core.common.enums.PostingType.REVENUE
+             AND lp.bookingLine.id IN :lineIds
+           GROUP BY lp.bookingLine.id
+           """)
+    List<Object[]> sumRevenueByLine(@Param("lineIds") Collection<UUID> lineIds);
 }
