@@ -1,4 +1,4 @@
-# MERGED Stage 1 + Stage 2 (generated). getRevenue deferred to Stage 6.
+# MERGED Stage 1 + Stage 2 (generated). Reports (API-016/017) are DRAFT — awaiting Desk freeze-flip (WAVE0_00 §1b).
 openapi: 3.1.0
 info:
   title: "Hospitality Operations Platform \u2014 core-api"
@@ -22,6 +22,9 @@ tags:
   description: Payment links, capture, cancel-auth (SCH-030..033). Human-gated writes (INV-007).
 - name: webhooks
   description: Inbound PSP event sink (SCH-070/071); machine-to-machine, signature-authenticated.
+- name: reports
+  description: 'Financial read-backs (charter §9): revenue by vertical and the unpaid-bookings worklist
+    (API-016/017). Read-only; serves ops-web + the future MCP''s financial interrogation. DRAFT.'
 paths:
   /customers:
     post:
@@ -427,6 +430,56 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+  # DRAFT (API-016) — awaiting Desk freeze-flip (WAVE0_00 §1b). Read-only, additive, no schema change.
+  /reports/revenue:
+    get:
+      operationId: getRevenue
+      tags:
+      - reports
+      summary: 'Revenue split by vertical over a window (charter §9). Read-only. gross = sum of REVENUE
+        postings; refundedTotal = absolute value of the sum of REFUND_REVERSAL postings; net = gross -
+        refundedTotal (a derived identity, never stored). Window is half-open [from, to) on posting time.
+        All amounts minor units. groupBy is vertical only (no day / capture-mode variants — charter §9 minimal).'
+      parameters:
+      - name: from
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+        description: 'Inclusive lower bound on posting time (half-open [from, to)).'
+      - name: to
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+        description: 'Exclusive upper bound on posting time (half-open [from, to)).'
+      responses:
+        '200':
+          description: 'Revenue report for the window: per-vertical gross/refundedTotal/net plus totals.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevenueReport'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  # DRAFT (API-017) — awaiting Desk freeze-flip (WAVE0_00 §1b). Read-only, additive, no schema change.
+  /reports/unpaid-bookings:
+    get:
+      operationId: listUnpaidBookings
+      tags:
+      - reports
+      summary: 'The full unpaid-bookings worklist (charter §9). Read-only, no params. Selection predicate:
+        total_amount > amount_paid (the SQL form of customerOwes > 0, RX-003). Each booking carries its
+        lines with per-line owed/posted/held breakdown. All amounts minor units.'
+      responses:
+        '200':
+          description: 'Every booking with an outstanding customer balance, each with its line breakdown.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnpaidBookings'
 components:
   parameters:
     CustomerId:
@@ -903,6 +956,172 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BookingLineResponse'
+    # DRAFT (API-016) — awaiting Desk freeze-flip (WAVE0_00 §1b). Read-only, additive, no schema change.
+    # Backed by existing LedgerPosting (vertical + bookingLine FK) and sumByVertical.
+    RevenueReport:
+      type: object
+      required:
+      - window
+      - currency
+      - byVertical
+      - totals
+      properties:
+        window:
+          type: object
+          required:
+          - from
+          - to
+          properties:
+            from:
+              type: string
+              format: date-time
+              description: 'Inclusive lower bound on posting time (half-open [from, to)).'
+            to:
+              type: string
+              format: date-time
+              description: 'Exclusive upper bound on posting time (half-open [from, to)).'
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        byVertical:
+          type: array
+          items:
+            $ref: '#/components/schemas/RevenueByVertical'
+        totals:
+          $ref: '#/components/schemas/RevenueTotals'
+    RevenueByVertical:
+      type: object
+      required:
+      - vertical
+      - gross
+      - refundedTotal
+      - net
+      properties:
+        vertical:
+          $ref: '#/components/schemas/Vertical'
+        gross:
+          type: integer
+          format: int64
+          description: 'Sum of REVENUE postings for this vertical in the window, minor units.'
+        refundedTotal:
+          type: integer
+          format: int64
+          description: 'Absolute value of the sum of REFUND_REVERSAL postings for this vertical
+            in the window, minor units. Always >= 0.'
+        net:
+          type: integer
+          format: int64
+          description: 'Derived identity: gross - refundedTotal (never a stored field), minor units.'
+    RevenueTotals:
+      type: object
+      required:
+      - gross
+      - refundedTotal
+      - net
+      properties:
+        gross:
+          type: integer
+          format: int64
+          description: 'Sum of REVENUE postings across all verticals in the window, minor units.'
+        refundedTotal:
+          type: integer
+          format: int64
+          description: 'Absolute value of the sum of REFUND_REVERSAL postings across all verticals
+            in the window, minor units. Always >= 0.'
+        net:
+          type: integer
+          format: int64
+          description: 'Derived identity: gross - refundedTotal (never a stored field), minor units.'
+    # DRAFT (API-017) — awaiting Desk freeze-flip (WAVE0_00 §1b). Read-only, additive, no schema change.
+    # Backed by existing Booking amount columns, payment_line, and LedgerPosting (per-line REVENUE).
+    UnpaidBookings:
+      type: object
+      required:
+      - bookings
+      properties:
+        bookings:
+          type: array
+          items:
+            $ref: '#/components/schemas/UnpaidBooking'
+          description: 'Every booking where total_amount > amount_paid (SQL form of customerOwes > 0, RX-003).'
+    UnpaidBooking:
+      type: object
+      required:
+      - bookingId
+      - shopperReference
+      - customerName
+      - currency
+      - totalAmount
+      - amountPaid
+      - customerOwes
+      - lines
+      properties:
+        bookingId:
+          type: string
+          format: uuid
+        shopperReference:
+          type: string
+          description: 'Opaque stable customer identifier (SHPR-…).'
+        customerName:
+          type: string
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        totalAmount:
+          type: integer
+          format: int64
+          description: 'Minor units.'
+        amountPaid:
+          type: integer
+          format: int64
+          description: 'Minor units.'
+        customerOwes:
+          type: integer
+          format: int64
+          description: 'max(0, totalAmount - amountPaid), minor units (RX-003). The selection key:
+            a booking is unpaid iff customerOwes > 0 (i.e. total_amount > amount_paid).'
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/UnpaidBookingLine'
+    UnpaidBookingLine:
+      type: object
+      required:
+      - lineId
+      - vertical
+      - lineAmount
+      - lineRevenuePosted
+      - lineOwes
+      - lineHeldAuth
+      properties:
+        lineId:
+          type: string
+          format: uuid
+        vertical:
+          $ref: '#/components/schemas/Vertical'
+        lineAmount:
+          type: integer
+          format: int64
+          description: 'The line''s priced debt, minor units.'
+        lineRevenuePosted:
+          type: integer
+          format: int64
+          description: 'Sum of REVENUE postings for this line, minor units. 0 until a covering payment
+            is captured.'
+        lineOwes:
+          type: integer
+          format: int64
+          description: 'lineAmount - lineRevenuePosted, minor units. CAPTURED ONLY: a held authorisation
+            does NOT reduce owes (mirrors booking-level customerOwes, RX-003).'
+        lineHeldAuth:
+          type: integer
+          format: int64
+          description: 'Informational only: sum of payment_line.amount whose parent payment.status =
+            AUTHORISED, minor units. Reflects committed DB state — a capture requested but not yet
+            webhook-confirmed still shows as held here (eventual-consistency caveat). Does NOT affect
+            lineOwes.'
     CaptureMode:
       type: string
       enum:
@@ -1352,4 +1571,31 @@ x-requirements-stage2:
     - ENM-002
     - ENM-003
     - INV-007
+    - RX-003
+x-requirements-reports:
+  stage: 6   # charter §9 financial read-backs, specced ahead of Stage 6 reporting
+  status: DRAFT   # authoritative status in WAVE0_00 §1b; awaiting Desk freeze-flip — NOT self-frozen
+  items:
+  - id: API-016
+    requirement: Revenue split by vertical over a half-open window (charter §9 getRevenue).
+    acceptance: '200 RevenueReport for [from, to) on posting time; gross = sum of REVENUE postings,
+      refundedTotal = |sum of REFUND_REVERSAL|, net = gross - refundedTotal (derived identity, not stored);
+      per-vertical + totals; all minor units; groupBy vertical only. Read-only, additive, no schema change.'
+    mapsTo:
+    - SCH-050
+    - SCH-051
+    - ENM-001
+  - id: API-017
+    requirement: The full unpaid-bookings worklist (charter §9 listUnpaidBookings).
+    acceptance: '200 UnpaidBookings, no params; selection predicate total_amount > amount_paid (SQL form of
+      customerOwes > 0, RX-003); per line lineRevenuePosted = sum of REVENUE postings, lineOwes = lineAmount
+      - lineRevenuePosted (captured only — held auth does NOT reduce owes), lineHeldAuth = sum of
+      payment_line.amount where parent payment.status = AUTHORISED (informational; eventual-consistency
+      caveat). All minor units. Read-only, additive, no schema change.'
+    mapsTo:
+    - SCH-020
+    - SCH-021
+    - SCH-030
+    - SCH-050
+    - WHK-016
     - RX-003
