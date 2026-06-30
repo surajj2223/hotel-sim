@@ -114,9 +114,10 @@ class ScopedRevenueHttpApiTest {
         assertLineRevenue(bookingId, "SPA", SPA_PRICE);
         assertLineRevenue(bookingId, "ROOM", 0L);
 
-        // Folio roll-ups: total 200000; spa auth+capture joins the secured roll-up (authorised
-        // 200000) and pays £200 (matches the service-layer proof in ScopedAllocationApiTest).
-        assertFolio(bookingId, ROOM_PRICE + SPA_PRICE, ROOM_PRICE + SPA_PRICE, SPA_PRICE);
+        // Folio roll-ups: total 200000; spa is now CAPTURED so its auth drops out of the live
+        // hold (RX-004) — only the still-held room auth remains secured (authorised 180000) — and
+        // £200 is paid (matches the service-layer proof in ScopedAllocationApiTest).
+        assertFolio(bookingId, ROOM_PRICE + SPA_PRICE, ROOM_PRICE, SPA_PRICE);
     }
 
     // ── Multi-method: room on payment A, spa on payment B, each to its own vertical ──
@@ -155,8 +156,9 @@ class ScopedRevenueHttpApiTest {
         assertLineRevenue(bookingId, "SPA", SPA_PRICE);
         assertThat(pspA).isNotEqualTo(pspB);
 
-        // Folio fully authorised and fully paid (£2,000).
-        assertFolio(bookingId, ROOM_PRICE + SPA_PRICE, ROOM_PRICE + SPA_PRICE, ROOM_PRICE + SPA_PRICE);
+        // Folio fully paid (£2,000); both payments CAPTURED, so the live authorised hold is 0
+        // (RX-004 — a spent auth is no longer secured).
+        assertFolio(bookingId, ROOM_PRICE + SPA_PRICE, 0L, ROOM_PRICE + SPA_PRICE);
     }
 
     // ── Negative: coverage summing != amount → 400 (D4 surfaces over HTTP) ──

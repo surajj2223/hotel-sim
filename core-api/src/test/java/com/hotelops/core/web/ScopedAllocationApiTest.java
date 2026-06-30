@@ -41,8 +41,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Stage 4 Slice 1 — proves WHK-016 scoped payment→line allocation and the live folio
- * {@code amountAuthorised} roll-up (D3) end-to-end inside core-api.
+ * Stage 4 Slice 1 — proves WHK-016 scoped payment→line allocation and the folio's live
+ * {@code amountAuthorised} hold (RX-004: derived on read as the sum of AUTHORISED-status
+ * payment auths — a captured auth is spent and excluded) end-to-end inside core-api.
  *
  * The webhook/outbox machinery is identical to {@link ImmediateCaptureApiTest}; the only new
  * ingredient is scoped coverage, supplied at the service layer ({@link PaymentService}
@@ -140,11 +141,11 @@ class ScopedAllocationApiTest {
                 .as("only the spa line earned revenue; the room line is untouched")
                 .allMatch(p -> p.getVertical() == Vertical.SPA);
 
-        // (c) folio: total 200000, paid 20000 (spa captured), balance 180000. Authorised is now
-        //     200000 (room 180000 + spa 20000) — the spa auth joined the roll-up. The visible
-        //     under-secured GAP was the assertion above (authorised 180000 < total 200000),
-        //     before the spa was secured.
-        assertFolio(bookingId, ROOM_PRICE + SPA_PRICE, ROOM_PRICE + SPA_PRICE, SPA_PRICE);
+        // (c) folio: total 200000, paid 20000 (spa captured), customerOwes 180000. The live
+        //     authorised hold is now 180000 — the room auth is still held, but the spa auth was
+        //     spent on capture and drops out of the live hold (RX-004; a stored roll-up used to
+        //     keep counting it as 200000, the inflation this RX fixes).
+        assertFolio(bookingId, ROOM_PRICE + SPA_PRICE, ROOM_PRICE, SPA_PRICE);
     }
 
     // ── Proof 2: multi-method (room on one payment, spa on another) ───────────
@@ -194,8 +195,9 @@ class ScopedAllocationApiTest {
         // Two distinct PSP transactions, each traceable to its own vertical.
         assertThat(pspA).isNotEqualTo(pspB);
 
-        // Folio fully authorised and fully paid (£2,000), balance 0.
-        assertFolio(bookingId, ROOM_PRICE + SPA_PRICE, ROOM_PRICE + SPA_PRICE, ROOM_PRICE + SPA_PRICE);
+        // Folio fully paid (£2,000), customerOwes 0; both auths spent on capture, so the live
+        // authorised hold is 0 (RX-004).
+        assertFolio(bookingId, ROOM_PRICE + SPA_PRICE, 0L, ROOM_PRICE + SPA_PRICE);
     }
 
     // ── Proof 3: no-scope regression — WHK-012 fill-by-line-order unchanged ───
