@@ -1,4 +1,4 @@
-# MERGED Stage 1 + Stage 2 (generated). Reports (API-016/017) are DRAFT — awaiting Desk freeze-flip (WAVE0_00 §1b).
+# MERGED Stage 1 + Stage 2 (generated). Reports (API-016/017) FROZEN on Desk sign-off (WAVE0_00 §1b).
 openapi: 3.1.0
 info:
   title: "Hospitality Operations Platform \u2014 core-api"
@@ -24,7 +24,7 @@ tags:
   description: Inbound PSP event sink (SCH-070/071); machine-to-machine, signature-authenticated.
 - name: reports
   description: 'Financial read-backs (charter §9): revenue by vertical and the unpaid-bookings worklist
-    (API-016/017). Read-only; serves ops-web + the future MCP''s financial interrogation. DRAFT.'
+    (API-016/017). Read-only; serves ops-web + the future MCP''s financial interrogation. FROZEN.'
 paths:
   /customers:
     post:
@@ -430,7 +430,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-  # DRAFT (API-016) — awaiting Desk freeze-flip (WAVE0_00 §1b). Read-only, additive, no schema change.
+  # FROZEN (API-016) on Desk sign-off — read-only, additive, no schema change.
   /reports/revenue:
     get:
       operationId: getRevenue
@@ -464,7 +464,7 @@ paths:
                 $ref: '#/components/schemas/RevenueReport'
         '400':
           $ref: '#/components/responses/BadRequest'
-  # DRAFT (API-017) — awaiting Desk freeze-flip (WAVE0_00 §1b). Read-only, additive, no schema change.
+  # FROZEN (API-017) on Desk sign-off — read-only, additive, no schema change.
   /reports/unpaid-bookings:
     get:
       operationId: listUnpaidBookings
@@ -956,7 +956,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BookingLineResponse'
-    # DRAFT (API-016) — awaiting Desk freeze-flip (WAVE0_00 §1b). Read-only, additive, no schema change.
+    # FROZEN (API-016) on Desk sign-off — read-only, additive, no schema change.
     # Backed by existing LedgerPosting (vertical + bookingLine FK) and sumByVertical.
     RevenueReport:
       type: object
@@ -1033,7 +1033,7 @@ components:
           type: integer
           format: int64
           description: 'Derived identity: gross - refundedTotal (never a stored field), minor units.'
-    # DRAFT (API-017) — awaiting Desk freeze-flip (WAVE0_00 §1b). Read-only, additive, no schema change.
+    # FROZEN (API-017) on Desk sign-off — read-only, additive, no schema change.
     # Backed by existing Booking amount columns, payment_line, and LedgerPosting (per-line REVENUE).
     UnpaidBookings:
       type: object
@@ -1574,7 +1574,7 @@ x-requirements-stage2:
     - RX-003
 x-requirements-reports:
   stage: 6   # charter §9 financial read-backs, specced ahead of Stage 6 reporting
-  status: DRAFT   # authoritative status in WAVE0_00 §1b; awaiting Desk freeze-flip — NOT self-frozen
+  status: FROZEN on Desk sign-off   # authoritative status in WAVE0_00 §1b
   items:
   - id: API-016
     requirement: Revenue split by vertical over a half-open window (charter §9 getRevenue).
