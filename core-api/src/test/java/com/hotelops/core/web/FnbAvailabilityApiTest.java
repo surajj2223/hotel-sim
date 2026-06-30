@@ -35,9 +35,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *   - GET /availability?vertical=FNB returns coversCapacity − committed overlap
  *   - booking an F&B line via the generic POST /bookings/{id}/lines drops availableUnits
  *   - the F&B line is priced base × quantity (no nights factor — duration pricing is Rooms-only)
- *   - the F&B availability row carries NEITHER roomAttributes NOR spaAttributes
- *     (fnbAttributes deferred; F&B did not inherit another vertical's attribute block)
- *   - ROOM availability is unbroken (no regression)
+ *   - the F&B availability row carries fnbAttributes populated from product_fnb (API-004 Slice A5),
+ *     and NEITHER roomAttributes NOR spaAttributes (each vertical populates only its own block)
+ *   - ROOM availability is unbroken (no regression) and ROOM rows carry no fnbAttributes
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -84,8 +84,15 @@ class FnbAvailabilityApiTest {
         assertThat(fnbRow.get("currency").asText()).isEqualTo("GBP");
         assertThat(fnbRow.get("availableUnits").asInt()).isEqualTo(FNB_COVERS);
 
-        // Attribute deferral — F&B did not inherit another vertical's attribute block, and
-        // fnbAttributes is deliberately deferred (like spaAttributes once was). Neither present.
+        // API-004 Slice A5 — fnbAttributes is populated from product_fnb for an FNB row.
+        JsonNode fnbAttrs = fnbRow.path("fnbAttributes");
+        assertThat(fnbAttrs.isObject()).as("FNB result carries fnbAttributes").isTrue();
+        assertThat(fnbAttrs.get("servicePeriod").asText()).isEqualTo("DINNER");
+        assertThat(fnbAttrs.get("seatingMinutes").asInt()).isEqualTo(120);
+        assertThat(fnbAttrs.get("coversCapacity").asInt()).isEqualTo(FNB_COVERS);
+
+        // Cross-vertical integrity — each vertical populates only its own block, so an FNB row
+        // carries neither roomAttributes nor spaAttributes.
         JsonNode roomAttrs = fnbRow.path("roomAttributes");
         assertThat(roomAttrs.isNull() || roomAttrs.isMissingNode())
                 .as("FNB result carries no roomAttributes").isTrue();
@@ -143,6 +150,11 @@ class FnbAvailabilityApiTest {
         JsonNode roomRow = findProduct(roomResults, room.getId());
         assertThat(roomRow).as("ROOM product still reachable alongside FNB").isNotNull();
         assertThat(roomRow.get("availableUnits").asInt()).isEqualTo(1);
+
+        // Cross-vertical null integrity (Slice A5) — fnbAttributes is null for a non-FNB (ROOM) row.
+        JsonNode roomFnbAttrs = roomRow.path("fnbAttributes");
+        assertThat(roomFnbAttrs.isNull() || roomFnbAttrs.isMissingNode())
+                .as("ROOM result carries no fnbAttributes").isTrue();
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

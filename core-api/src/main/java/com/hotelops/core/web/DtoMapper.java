@@ -8,6 +8,7 @@ import com.hotelops.core.ledger.LedgerPosting;
 import com.hotelops.core.payment.Payment;
 import com.hotelops.core.payment.Refund;
 import com.hotelops.core.product.Product;
+import com.hotelops.core.product.ProductFnb;
 import com.hotelops.core.product.ProductRoom;
 import com.hotelops.core.product.ProductSpa;
 import com.hotelops.core.web.dto.AvailabilityResult;
@@ -57,6 +58,7 @@ public class DtoMapper {
     public AvailabilityResult toAvailabilityResult(Product product, long unitPrice, int availableUnits) {
         AvailabilityResult.RoomAttributes roomAttrs = null;
         AvailabilityResult.SpaAttributes spaAttrs = null;
+        AvailabilityResult.FnbAttributes fnbAttrs = null;
         if (product instanceof ProductRoom room) {
             roomAttrs = new AvailabilityResult.RoomAttributes(
                     room.getFloorBand(),
@@ -69,6 +71,11 @@ public class DtoMapper {
                     spa.getDurationMinutes(),
                     spa.getTherapistGender(),
                     spa.getConcurrentSlots());
+        } else if (product instanceof ProductFnb fnb) {
+            fnbAttrs = new AvailabilityResult.FnbAttributes(
+                    fnb.getServicePeriod(),
+                    fnb.getSeatingMinutes(),
+                    fnb.getCoversCapacity());
         }
         return new AvailabilityResult(
                 product.getId(),
@@ -78,7 +85,8 @@ public class DtoMapper {
                 product.getCurrency(),
                 availableUnits,
                 roomAttrs,
-                spaAttrs);
+                spaAttrs,
+                fnbAttrs);
     }
 
     /** Line with no ledger context — {@code revenuePosted} defaults to 0 (no postings supplied). */
