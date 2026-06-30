@@ -4,6 +4,14 @@ Engineering changelog for the hotel-sim POC. Contract freeze/version history liv
 `WAVE0_0X` artifacts' own changelog sections — this file tracks implementation work that is
 not itself a contract change.
 
+## Changed — API-004 `fnbAttributes` frozen (Slice A5 sign-off) [API-004]
+
+Contract-status flip only — no behavioural change. The `fnbAttributes` amendment on
+`AvailabilityResult` (API-004), shipped in PR #36, is now **FROZEN** on Desk sign-off. The
+three DRAFT markers (the `WAVE0_02_OPENAPI.yaml` schema comment, the `amendmentA5` status under
+`x-requirements-stage2`, and the §1b Freeze Ledger row in `WAVE0_00_OVERVIEW.md`) read FROZEN;
+the field, DTO, mapper, and tests are unchanged. This authorises the already-shipping field.
+
 ## Added — API-004 `fnbAttributes` (Slice A5, draft) [API-004]
 
 Added a nullable `fnbAttributes` object to the `AvailabilityResult` DTO (API-004), the third
