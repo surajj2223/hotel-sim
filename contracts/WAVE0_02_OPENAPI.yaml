@@ -732,8 +732,7 @@ components:
               description: Parallel capacity per slot (inventory figure).
               example: 3
         fnbAttributes:
-          # DRAFT AMENDMENT (Slice A5) — additive, backward-compatible. NOT FROZEN; awaiting
-          # Desk sign-off (do not build the freeze-flip into this slice). Vertical-specific
+          # AMENDMENT (Slice A5) FROZEN on Desk sign-off — additive, backward-compatible. Vertical-specific
           # attributes for F&B (FNB) products, mirroring spaAttributes for SPA / roomAttributes
           # for ROOM. Populated for FNB products, null for other verticals; roomAttributes and
           # spaAttributes stay null for FNB. Existing ROOM/SPA responses are byte-identical. Raw
@@ -1235,14 +1234,14 @@ x-requirements:
         unaffected. Unblocks charter §5 therapist-gender preference matching over availability.'
     amendmentA5:
       slice: A5
-      status: DRAFT — awaiting Desk sign-off (see WAVE0_00 §1b API-004 fnbAttributes row)
+      status: FROZEN on Desk sign-off (see WAVE0_00 §1b API-004 fnbAttributes row)
       change: 'Additive, backward-compatible — nullable `fnbAttributes` object on
         AvailabilityResult exposes F&B vertical-specific attributes (servicePeriod,
         seatingMinutes, coversCapacity), mirroring spaAttributes for SPA / roomAttributes for ROOM.
         Populated for FNB products, null for other verticals; roomAttributes and spaAttributes
         stay null for FNB. Existing ROOM/SPA responses are byte-identical; no required-field
         change; existing clients unaffected. Raw product_fnb config only — no cuisine/dietary
-        (that would need a schema migration). NOT FROZEN; the DRAFT→FROZEN flip is Desk''s.'
+        (that would need a schema migration).'
     mapsTo:
     - SCH-010
     - SCH-011
