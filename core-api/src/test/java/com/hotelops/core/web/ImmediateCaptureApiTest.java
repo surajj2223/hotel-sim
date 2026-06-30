@@ -144,6 +144,12 @@ class ImmediateCaptureApiTest {
                 .andExpect(jsonPath("$.amountAuthorised").value(SPA_PRICE))
                 .andExpect(jsonPath("$.pspReference").value(authPspRef));
 
+        // RX-004 (Trap F): MID-FLIGHT — the IMMEDIATE payment is genuinely AUTHORISED between its
+        // AUTHORISATION and CAPTURE webhooks, so the folio's live authorised hold correctly shows
+        // its auth as live. This is NOT a bug; the value must NOT be suppressed.
+        mvc.perform(get("/bookings/" + bookingId))
+                .andExpect(jsonPath("$.amountAuthorised").value(SPA_PRICE));
+
         // INV-006: AUTHORISATION produces no ledger posting.
         outboxProcessor.processPending();
         assertThat(postingsFor(mref))
@@ -164,6 +170,12 @@ class ImmediateCaptureApiTest {
         mvc.perform(get("/payments/" + paymentId))
                 .andExpect(jsonPath("$.status").value("CAPTURED"))
                 .andExpect(jsonPath("$.amountCaptured").value(SPA_PRICE));
+
+        // RX-004: AFTER settlement — the payment is CAPTURED, its auth is spent, so the folio's
+        // live authorised hold drops to 0. The per-payment amountAuthorised (above) stays SPA_PRICE
+        // (the capture ceiling); only the booking-grain live hold nets it out.
+        mvc.perform(get("/bookings/" + bookingId))
+                .andExpect(jsonPath("$.amountAuthorised").value(0));
 
         // 6. Drain outbox → LedgerService.postCapture.
         outboxProcessor.processPending();

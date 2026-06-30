@@ -365,11 +365,10 @@ public class PaymentService {
         p.setStatus(PaymentStatus.AUTHORISED);
         paymentRepository.save(p);
 
-        // D3 (Stage 4): refresh the live folio authorised roll-up so "secured" reflects this
-        // auth. INV-006 still holds — AUTHORISATION posts nothing to the ledger.
-        bookingService.recalculateTotals(p.getBooking());
-        bookingRepository.save(p.getBooking());
-
+        // RX-004: no booking roll-up refresh here. The folio "secured" figure is now derived on
+        // read (sum of AUTHORISED-status payment auths), and recalculateTotals only maintains
+        // total/paid/refunded — none of which an AUTHORISATION changes (it captures, refunds and
+        // mutates no line). INV-006 still holds — AUTHORISATION posts nothing to the ledger.
         return p;
     }
 

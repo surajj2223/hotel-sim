@@ -943,9 +943,14 @@ components:
           type: integer
           format: int64
           readOnly: true
-          description: 'D3 (Stage 4): live "secured" roll-up = sum of payment.amountAuthorised
-            for the booking. Visible only, no enforcement. Minor units. Additive read field,
-            backward-compatible.'
+          # DRAFT (RX-004) — redefinition pending Desk freeze. Shape unchanged; meaning narrowed
+          # from "sum of all payments' auth" to the status-gated live hold. See RX-004 + Freeze Ledger.
+          description: 'Live authorised hold = sum of payment.amountAuthorised WHERE payment
+            status == AUTHORISED. Computed on read, NOT stored: a captured payment''s auth is
+            spent and excluded, so this reflects only auths still held (e.g. a MANUAL room hold
+            before checkout). Visible only, no enforcement. Minor units. (RX-004 — supersedes the
+            Stage-4 D3 stored roll-up, which summed every payment''s auth incl. spent IMMEDIATE
+            captures.)'
         balance:
           type: integer
           format: int64

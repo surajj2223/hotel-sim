@@ -4,6 +4,41 @@ Engineering changelog for the hotel-sim POC. Contract freeze/version history liv
 `WAVE0_0X` artifacts' own changelog sections — this file tracks implementation work that is
 not itself a contract change.
 
+## Changed — Folio `amount_authorised` dropped; live hold derived on read [RX-004]
+
+The booking/folio-level `amount_authorised` was a **stored** derivation that summed *every*
+payment's authorised amount — including spent IMMEDIATE auths that had already captured — so it
+inflated the folio "secured" figure (read £80 when only a £51 room hold was live) and never fell
+after a capture. The field **gated nothing**: no capture guard, no completion precondition reads
+it (the capture guard bounds capture by the *per-payment* `payment.amount_authorised`); its only
+producer was `recalculateTotals` and its only consumer was `DtoMapper` folio assembly.
+
+Removed the stored column entirely and compute the figure **on read** as the live hold —
+`Σ payment.amount_authorised WHERE status = AUTHORISED`. The `FolioResponse.amountAuthorised`
+response field keeps its shape; only its computation and meaning change. The per-payment
+`amountAuthorised` (Payment entity, `PaymentResponse`, the SCH-032 capture guard) is the source
+of truth and is **not** touched. Recorded as the append-only refactor record
+[RX-004](contracts/refactor-x/RX-004-drop-folio-amount-authorised.md) (DRAFT until Desk freeze).
+
+- **Schema:** forward `V7__drop_booking_amount_authorised.sql` drops `booking.amount_authorised`
+  (added by `V3`). V3 is frozen history and untouched; the V6 `booking_balance` view reads
+  `total/paid/refunded` only, so no view rebuild.
+- **Entity/service:** `Booking.amountAuthorised` field + getter/setter removed; the `authorised`
+  line removed from `BookingService.recalculateTotals` (`total/paid/refunded` stand — they gate
+  `completeFolio` via `customerOwes`); `PaymentService.recordAuthorisation`'s recalc removed (a
+  no-op once the roll-up is gone — an AUTHORISATION changes none of total/paid/refunded).
+- **Read:** `PaymentRepository.sumAuthorisedForBooking` JPQL status-filtered to AUTHORISED;
+  `DtoMapper.toFolio` derives the field from it.
+- **Contract (DRAFT):** `FolioResponse.amountAuthorised` description redefined in
+  `WAVE0_02_OPENAPI.yaml`; §1b Freeze Ledger gets an RX-004 row + the WHK-016 row's
+  `Superseded-by` → RX-004 (scoped to this roll-up; `payment_line` allocation stands).
+- **Proofs:** `ImmediateCaptureApiTest` — IMMEDIATE auth→capture leaves folio `amountAuthorised
+  == 0` after settlement (mid-flight value correctly live — not a bug); `ScopedRevenueHttpApiTest`
+  / `ScopedAllocationApiTest` `assertFolio` flipped to live-hold (MANUAL-held shows live, captured
+  shows 0). Partial capture (£600→£540) and multi-payment-toward-one-folio stay green.
+
+Read-model only — no posting, capture, or refund behaviour changes.
+
 ## Changed — Docs refresh to Stage 3.1 (three verticals, folio lifecycle, reports)
 
 Brought the three narrative docs into agreement with shipped reality after the `stage-3.1`

@@ -247,19 +247,20 @@ public class BookingService {
      * - totalAmount      = sum of ACTIVE line_amounts
      * - amountPaid       = sum of amount_captured across all payments for this booking
      * - amountRefunded   = sum of settled refund amounts for this booking's payments
-     * - amountAuthorised = sum of amount_authorised across all payments (D3, Stage 4 — the
-     *                      live "secured" figure; visible only, no enforcement)
+     *
+     * The folio "secured" figure (live authorised hold) is NO LONGER stored or refreshed here
+     * (RX-004): it is derived on read in DtoMapper folio assembly as the sum of payment
+     * amount_authorised over AUTHORISED-status payments only. Do not reintroduce a stored
+     * roll-up — a stored derivation drifts (it inflated by counting spent IMMEDIATE auths).
      */
     public void recalculateTotals(Booking booking) {
         long total      = bookingRepository.sumActiveLineAmounts(booking.getId());
         long paid       = paymentRepository.sumCapturedForBooking(booking.getId());
         long refunded   = refundRepository.sumSettledRefundsForBooking(booking.getId());
-        long authorised = paymentRepository.sumAuthorisedForBooking(booking.getId());
 
         booking.setTotalAmount(total);
         booking.setAmountPaid(paid);
         booking.setAmountRefunded(refunded);
-        booking.setAmountAuthorised(authorised);
     }
 
     // -------------------------------------------------------------------------

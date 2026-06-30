@@ -29,11 +29,17 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
            """)
     long sumCapturedForBooking(@Param("bookingId") UUID bookingId);
 
-    /** D3 (Stage 4): sum of authorised amounts for a booking (drives booking.amountAuthorised). */
+    /**
+     * RX-004: the folio's LIVE authorised hold — sum of amount_authorised over the booking's
+     * payments that are still AUTHORISED only. A captured (IMMEDIATE or MANUAL) payment's auth is
+     * spent and no longer a live hold, so it is excluded. Derived on read in DtoMapper folio
+     * assembly; never stored on the booking.
+     */
     @Query("""
            SELECT COALESCE(SUM(p.amountAuthorised), 0)
            FROM Payment p
            WHERE p.booking.id = :bookingId
+             AND p.status = com.hotelops.core.common.enums.PaymentStatus.AUTHORISED
            """)
     long sumAuthorisedForBooking(@Param("bookingId") UUID bookingId);
 }
