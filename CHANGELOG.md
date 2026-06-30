@@ -4,6 +4,33 @@ Engineering changelog for the hotel-sim POC. Contract freeze/version history liv
 `WAVE0_0X` artifacts' own changelog sections — this file tracks implementation work that is
 not itself a contract change.
 
+## Changed — Docs refresh to Stage 3.1 (three verticals, folio lifecycle, reports)
+
+Brought the three narrative docs into agreement with shipped reality after the `stage-3.1`
+tag. They were last touched at the `stage-2` era and described a two-vertical, no-completion,
+no-reports system. Since then the F&B vertical (strategy + availability `fnbAttributes` +
+booking), the folio-completion lifecycle (`completeLine`/`completeFolio`, API-014/015), and
+the charter §9 reporting reads (`getRevenue` API-016, `listUnpaidBookings` API-017) all
+shipped. The single authoritative status source remains the Freeze Ledger (`WAVE0_00 §1b`);
+these docs defer to it. Docs/status only — no code, no contract, no Postman.
+
+- **`README.md`:** status banner, two-heads Body row, and Projects table bumped Stage 2 →
+  Stage 3.1; `/availability` rows corrected (FNB now registered, returns `fnbAttributes` —
+  only EVENT 400s); F&B marked wired end-to-end in the Business Domain list and strategy
+  prose; the four new endpoints added to the live-endpoint tables (`/bookings/{id}/complete`,
+  `/bookings/{id}/lines/{lineId}/complete`, `/reports/revenue`, `/reports/unpaid-bookings`);
+  the Capability-Surface "not all live yet" hedge dropped (reports are live; EVENT +
+  `ops-web`/MCP remain); Delivery Waves now reads Stages 1–3 closed.
+- **`docs/RUNNING.md`:** banner bumped to current state; `/availability` + SPA/FNB test note
+  corrected (FNB returns `fnbAttributes`; only EVENT 400s); added Folio-completion and Reports
+  endpoint tables. The minimal single-ROOM seed + curl happy-path are unchanged (still valid).
+- **`docs/system-design/prd/08-delivery-plan.md`:** Build Status Stage 2 → Stage 3.1; Stage
+  map split out a closed Stage 3 row (F&B, completion, reports); Stages 4–8 narrowed to EVENT
+  + remaining depth; version 0.2 → 0.3, date → 2026-06-30; Contract-Drift Log row added.
+
+Docs only — no behaviour change, no contract/source/schema edits, no tag changes. The EVENT
+vertical, `ops-web`, and the MCP server remain genuinely unbuilt.
+
 ## Changed — Reports API-016/017 frozen (Desk sign-off) [API-016, API-017]
 
 Contract-status flip only — no behavioural change. `getRevenue` (API-016, `GET /reports/revenue`)

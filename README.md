@@ -4,10 +4,14 @@ A proof-of-concept multi-vertical hotel operations system, built to demonstrate 
 complete, conventional **headful** system can later be made **headless** — via an additive
 MCP layer — without rebuilding anything underneath.
 
-> **Status:** Wave 0 (contracts) is frozen. Wave 1 is in progress — **Stage 2 complete**
-> (tagged `stage-2`); Stages 3–8 remain. `core-api` and a standalone `payments-sim` PSP
-> are built and talk to each other over real HTTP + signed webhooks. The MCP server,
-> `ops-web`, and a richer customer checkout are not built yet. Wave 1 is delivered in
+> **Status:** Wave 0 (contracts) is frozen. Wave 1 is in progress — **Stages 1–3 closed**
+> (tags `stage-2`, `stage-2.1`, `stage-3`, `stage-3.1`). Three verticals (Rooms, Spa, F&B)
+> are live; the full money lifecycle — payment links, async webhook-driven
+> capture/cancel/refund, ledger-posts-on-capture, scoped allocation, and folio completion —
+> is wired; and the complete charter §9 read surface, including the revenue and
+> unpaid-bookings reports, is built. `core-api` and a standalone `payments-sim` PSP talk to
+> each other over real HTTP + signed webhooks. The MCP server, `ops-web`, the EVENT vertical,
+> and a richer customer checkout are not built yet. Wave 1 is delivered in
 > Stages — see [Delivery Waves](#delivery-waves) and
 > [HS-08](docs/system-design/prd/08-delivery-plan.md). See
 > [What actually runs today](#what-actually-runs-today) and
@@ -30,7 +34,7 @@ console already uses. **No capability may exist solely for the agent.**
 
 | Layer | What it is | Built? |
 |---|---|---|
-| **Body** — `core-api` | All logic, rules, and state. The single source of truth. | ✅ Built — Wave 1 @ Stage 2 (money loop, SPA, scoped allocation shipped; `stage-2` tag) |
+| **Body** — `core-api` | All logic, rules, and state. The single source of truth. | ✅ Built — Wave 1 @ Stage 3.1 (`stage-3.1` tag): three verticals (Rooms/Spa/F&B), money loop, scoped allocation, folio completion, and the charter §9 reports |
 | **Head 1 (headful)** — `ops-web` | A complete standalone operations console. | ⏳ Not yet built |
 | **Head 2 (headless)** — MCP server | A thin tool-wrapper over the same `core-api` endpoints. | ⏳ Wave 2 |
 
@@ -62,10 +66,12 @@ were retired during Feature 2 planning — see
 | `/customers` | POST | Create a customer (server mints `shopperReference`) |
 | `/customers/{id}` | GET | Fetch one customer |
 | `/customers/{id}/preferences/{key}` | PUT | Upsert one preference value |
-| `/availability` | GET | Availability + price; resolves any registered vertical (ROOM and SPA wired — SPA returns `spaAttributes`; FNB/EVENT return 400 until registered) |
+| `/availability` | GET | Availability + price; resolves any registered vertical (ROOM, SPA, and FNB wired — SPA returns `spaAttributes`, FNB returns `fnbAttributes`; EVENT returns 400 until registered) |
 | `/bookings` | POST | Open an empty folio for a customer |
 | `/bookings/{id}/lines` | POST | Add a line (revalidates availability + price, recomputes totals) |
 | `/bookings/{id}` | GET | Read the folio with lines and derived amounts |
+| `/bookings/{id}/lines/{lineId}/complete` | POST | Mark a line COMPLETED (ungated; posts nothing; API-014) |
+| `/bookings/{id}/complete` | POST | Complete a folio CONFIRMED→COMPLETED (human-gated; revalidated; API-015) |
 
 **Payments (async; the webhook is the authoritative completion signal):**
 
@@ -78,6 +84,13 @@ were retired during Feature 2 planning — see
 | `/payments/{id}/cancel` | POST | Cancel an uncaptured authorisation; returns `202` |
 | `/payments/{id}/refunds` | POST | Refund (full/partial); returns `202` |
 | `/webhooks/psp` | POST | Inbound PSP events; the authoritative state-transition signal |
+
+**Reports (reads; charter §9):**
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/reports/revenue` | GET | Revenue by vertical over a half-open `[from, to)` window — gross / refundedTotal / net (API-016) |
+| `/reports/unpaid-bookings` | GET | Bookings still owed (`total > paid`), with per-line owes and held-auth (API-017) |
 
 Repercussive writes require a human-authorisation header, `X-Human-Auth` (presence-only in
 the POC — not cryptographically enforced). Inbound webhooks are authenticated by
@@ -98,17 +111,17 @@ Four sellable verticals managed from a single system:
 
 - **Rooms** — room/night bookings *(wired end-to-end)*
 - **Spa** — therapist and treatment time slots *(availability wired end-to-end — Stage 2; returns `spaAttributes`)*
-- **F&B** — restaurant covers per service period
-- **Events** — capacity-limited experiences (e.g. city tours, horse rides)
+- **F&B** — restaurant covers per service period *(wired end-to-end — returns `fnbAttributes`)*
+- **Events** — capacity-limited experiences (e.g. city tours, horse rides) *(not yet wired)*
 
 Every vertical is the same thing at the domain level: a bookable resource with capacity
 over time, sold to a customer, paid for, and posted to a ledger. Vertical-specific
 behaviour (availability, pricing, payment capture mode) lives in per-vertical **strategy**
 classes — not in parallel silos. The `Product` hierarchy (`ProductRoom`, `ProductSpa`,
-`ProductFnb`, `ProductEvent`) already exists; `RoomStrategy` and `SpaStrategy` are
-registered, and `/availability` resolves any registered vertical via
-`VerticalStrategyRegistry` (SPA returns `spaAttributes`). FNB/EVENT return 400 until their
-strategies register.
+`ProductFnb`, `ProductEvent`) already exists; `RoomStrategy`, `SpaStrategy`, and
+`FnbStrategy` are registered, and `/availability` resolves any registered vertical via
+`VerticalStrategyRegistry` (SPA returns `spaAttributes`, FNB returns `fnbAttributes`). EVENT
+returns 400 until its strategy registers.
 
 ---
 
@@ -206,8 +219,9 @@ Writes are never autonomous. The same four mechanisms protect a click in a futur
 Customer CRUD + preferences · `createBooking` · `modifyBookingLine` · `cancelBookingLine` · `createPaymentLink` · `capturePayment(amount?)` · `cancelAuthorisation` · `refundPayment(amount?)`
 
 Every endpoint must fully serve `ops-web`. No endpoint exists solely for the agent.
-*(Some reads above — revenue rollups, unpaid lists, multi-vertical search — are part of the
-target surface, not all live yet; see the live-endpoint table above for what's wired today.)*
+*(The reads above — including the revenue rollup and unpaid-bookings list — are live; see
+the live-endpoint tables above. What remains is the EVENT vertical and the `ops-web` / MCP
+heads.)*
 
 ---
 
@@ -231,8 +245,8 @@ Representative agent utterances:
 
 | Project | Stack | Role | State |
 |---|---|---|---|
-| `core-api` | Spring Boot 3.x, Java 21 | The body — domain, persistence, payment orchestration, ledger | Built (Wave 1 @ Stage 2) |
-| `payments-sim` | Spring Boot 3.x, Java 21 | Stateful fake PSP: mints references, persists state, fires signed webhooks | Built (Wave 1 @ Stage 2) |
+| `core-api` | Spring Boot 3.x, Java 21 | The body — domain, persistence, payment orchestration, ledger | Built (Wave 1 @ Stage 3.1) |
+| `payments-sim` | Spring Boot 3.x, Java 21 | Stateful fake PSP: mints references, persists state, fires signed webhooks | Built (Wave 1 @ Stage 3.1) |
 | `db`, `payments-sim-db` | Postgres 16 (Docker) | One instance per service (RX-001) | Built |
 | `docker-compose` | — | Wires services; home of the smoke test | Built |
 | `ops-web` | React | Complete operations console (Head 1) | Not started |
@@ -251,8 +265,10 @@ evolve only via append-only `RX-` records, never in-place edits.
 **Wave 1 — Parallel build** *(in progress — delivered in Stages)*
 Core domain + persistence · vertical strategies · ledger/finance (outbox-driven) · payment
 orchestration · `payments-sim` · `ops-web`. Wave 1 is delivered as a Stage march:
-**Stage 1** (book a room) and **Stage 2** (get paid — the money loop, SPA availability,
-scoped cross-vertical allocation) are complete (tagged `stage-2`); **Stages 3–8** remain.
+**Stage 1** (book a room), **Stage 2** (get paid — the money loop, SPA availability,
+scoped cross-vertical allocation), and **Stage 3** (F&B vertical, folio completion
+lifecycle, and the charter §9 reporting reads) are closed (tags `stage-2`, `stage-2.1`,
+`stage-3`, `stage-3.1`); **Stages 4–8** remain.
 See [HS-08 — Delivery Plan](docs/system-design/prd/08-delivery-plan.md) for the full
 Stage↔Wave map.
 

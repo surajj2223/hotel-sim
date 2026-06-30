@@ -8,7 +8,9 @@ repo **actually contains today**, not the end-state described in the README.
 > `payments-sim-db` on :5433). `docker-compose.yml` defines all four.
 > `ops-web` and the MCP server are not in the tree yet.
 >
-> **The money loop is wired end-to-end (Stage 2).** `payments-sim` is fully built (mints
+> **The money loop is wired end-to-end (Stages 1–3, tag `stage-3.1`).** Three verticals
+> (Rooms, Spa, F&B) are live, the folio-completion lifecycle and the charter §9 reporting
+> reads are built, and `payments-sim` is fully built (mints
 > references, persists state, fires signed webhooks), and the *outbound*
 > `core-api → payments-sim` seam is now live: creating a link / capturing / cancelling /
 > refunding drives a real PSP round-trip (PSP-001..017, `WAVE0_05 §9a`). The authorisation
@@ -176,7 +178,7 @@ endpoints (listed after the happy path). All paths are relative to
 | `/customers` | POST | Create a customer (server mints `shopperReference`) |
 | `/customers/{id}` | GET | Fetch one customer |
 | `/customers/{id}/preferences/{key}` | PUT | Upsert one preference value |
-| `/availability` | GET | Availability + price; resolves any registered vertical (ROOM and SPA wired — SPA returns `spaAttributes`; FNB/EVENT return 400 until registered) |
+| `/availability` | GET | Availability + price; resolves any registered vertical (ROOM, SPA, and FNB wired — SPA returns `spaAttributes`, FNB returns `fnbAttributes`; EVENT returns 400 until registered) |
 | `/bookings` | POST | Open an empty folio for a customer |
 | `/bookings/{id}/lines` | POST | Add a room line (revalidates availability + price, recomputes totals) |
 | `/bookings/{id}` | GET | Read the folio with lines and derived amounts |
@@ -221,11 +223,12 @@ The interesting design lives in the edge cases, not the happy path:
   lines whose quantity exceeds 5 in one window; the over-the-limit write fails loudly
   with a 409 rather than overbooking. This is the write-time revalidation (INV-003),
   the core safety mechanism.
-- **SPA availability** — `?vertical=SPA` returns results with a `spaAttributes` object
-  (treatmentKind, durationMinutes, therapistGender, concurrentSlots — Slice A3/A4).
-  `/availability` resolves any registered vertical via `VerticalStrategyRegistry`.
-  `?vertical=FNB` / `?vertical=EVENT` still return `400` until their strategies register —
-  that path shows the `ApiError` envelope shape.
+- **SPA / FNB availability** — `?vertical=SPA` returns results with a `spaAttributes` object
+  (treatmentKind, durationMinutes, therapistGender, concurrentSlots — Slice A3/A4), and
+  `?vertical=FNB` returns results with an `fnbAttributes` object (servicePeriod,
+  seatingMinutes, coversCapacity — Slice A5). `/availability` resolves any registered vertical
+  via `VerticalStrategyRegistry`. `?vertical=EVENT` still returns `400` until its strategy
+  registers — that path shows the `ApiError` envelope shape.
 
 ### Payment / webhook endpoints (Stage 2)
 
@@ -247,6 +250,20 @@ completion signal. Paths/verbs below are from `WAVE0_02_OPENAPI.yaml`.
 > The folio read (`GET /bookings/{id}`) exposes a derived read-only `revenuePosted` per
 > booking line (API-008 Slice S2) — the captured revenue posted to the ledger for that line,
 > letting you confirm scoped allocation landed on the right vertical.
+
+### Folio completion (Stage 3)
+
+| Endpoint | Method | Purpose | Notes |
+|----------|--------|---------|-------|
+| `/bookings/{id}/lines/{lineId}/complete` | POST | Mark a line COMPLETED (ACTIVE→COMPLETED) | Ungated; posts nothing, moves no money (API-014) |
+| `/bookings/{id}/complete` | POST | Complete a folio (CONFIRMED→COMPLETED) | Human-gated (`X-Human-Auth`, 428 if absent); write-time revalidated — 409 `FolioNotCompletable` unless all non-cancelled lines are COMPLETED and `customerOwes == 0`; idempotent 200 (API-015) |
+
+### Reports (reads — Stage 3.1)
+
+| Endpoint | Method | Purpose | Notes |
+|----------|--------|---------|-------|
+| `/reports/revenue` | GET | Revenue grouped by vertical | `?from&to` (both required); half-open `[from, to)` posting-time window; gross / refundedTotal / net per vertical + totals (API-016) |
+| `/reports/unpaid-bookings` | GET | Bookings still owed (`total > paid`) | No params; per-line `lineOwes` (captured-only) and informational `lineHeldAuth` (API-017) |
 
 Two auth behaviours worth seeing on purpose:
 
