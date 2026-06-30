@@ -4,10 +4,10 @@
 |------------------|--------------------------------------------------------------|
 | **ID**           | HS-08                                                        |
 | **Title**        | Delivery Plan & Waves                                        |
-| **Version**      | 0.2                                                          |
+| **Version**      | 0.3                                                          |
 | **Contract Status** | Frozen                                                    |
-| **Build Status** | In Progress — Wave 1 @ Stage 2 (tagged `stage-2`); see Stage map below |
-| **Date**         | 2026-06-17                                                   |
+| **Build Status** | In Progress — Wave 1 @ Stage 3.1 (tagged `stage-3.1`); Stages 1–3 closed; see Stage map below |
+| **Date**         | 2026-06-30                                                   |
 | **Owner**        | Integration Owner                                            |
 | **Freezes**      | Wave 0 / 1 / 2 structure · Tracks A–F · Integration owner role · Gate conditions |
 
@@ -76,8 +76,9 @@ The single authoritative status source remains the Freeze Ledger (`WAVE0_00_OVER
 | Stage | Scope | Status |
 |-------|-------|--------|
 | **Stage 1** | Book a room (no payments). | ✅ Merged. |
-| **Stage 2** | Get paid: payment links, async webhook-driven capture/cancel/refund, ledger posts on capture, scoped cross-vertical allocation (WHK-016), SPA vertical + availability. | ✅ Closed, tagged `stage-2`. |
-| **Stages 3–8** | Remaining body work — further verticals, cross-vertical depth, operational reads, F&B + Events. | ⏳ Not yet built. |
+| **Stage 2** | Get paid: payment links, async webhook-driven capture/cancel/refund, ledger posts on capture, scoped cross-vertical allocation (WHK-016), SPA vertical + availability. | ✅ Closed, tagged `stage-2` / `stage-2.1`. |
+| **Stage 3** | Third vertical + lifecycle + reads: F&B vertical (strategy, availability `fnbAttributes`, booking), folio completion lifecycle (`completeLine`/`completeFolio`, API-014/015), and the charter §9 reporting reads (`getRevenue` API-016, `listUnpaidBookings` API-017). | ✅ Closed, tagged `stage-3` / `stage-3.1`. |
+| **Stages 4–8** | Remaining body work — cross-vertical depth, further operational reads, the EVENT vertical. | ⏳ Not yet built. |
 
 **Wave 2 (MCP)** is unchanged and still future.
 
@@ -133,3 +134,4 @@ retired, marked `RETIRED` and never reused. Briefs, commits, PRs, and tests refe
 | Date | Clause | Change | Reason | Arbitrated |
 |------|--------|--------|--------|------------|
 | 2026-06-17 | HS-08 Wave 0 table — `WAVE0_03` status | Deferred → Frozen | Doc was stale; `WAVE0_03` is FROZEN and fully implemented (the money loop) per `WAVE0_00 §1b`. Docs conform to the ledger, not vice-versa. | Yes |
+| 2026-06-30 | HS-08 Build Status + Stage map | Stage 2 → Stage 3.1 closed | Doc was stale at the `stage-2` era. Since then F&B (vertical + availability `fnbAttributes` + booking), folio completion (API-014/015), and the §9 reports (API-016/017) all shipped (tags `stage-3` / `stage-3.1`) per `WAVE0_00 §1b`. Prose/status only. | Yes |
