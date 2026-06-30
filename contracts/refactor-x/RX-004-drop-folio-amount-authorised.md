@@ -174,3 +174,11 @@ posting, capture, or refund behaviour changes.
 - `FolioResponse.amountAuthorised` redefined in `WAVE0_02_OPENAPI.yaml` (DRAFT).
 - §1b updated with the superseded-statement pointer; banner added.
 - `WAVE0_00 §7` changelog entry.
+
+---
+
+> **Freeze footnote (2026-06-30):** the `(DRAFT)` marker in the bullets above records the
+> OpenAPI field's status *as authored*; it is historical, not live. Authoritative status is
+> **FROZEN** — see the status banner above and `WAVE0_00 §1b` (changelog 2.7). The
+> `# DRAFT (RX-004)` comment was removed from `WAVE0_02_OPENAPI.yaml` on freeze; only this
+> append-only record retains the word as a record of the authoring state.
