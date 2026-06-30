@@ -4,6 +4,16 @@ Engineering changelog for the hotel-sim POC. Contract freeze/version history liv
 `WAVE0_0X` artifacts' own changelog sections — this file tracks implementation work that is
 not itself a contract change.
 
+## Changed — Reports API-016/017 frozen (Desk sign-off) [API-016, API-017]
+
+Contract-status flip only — no behavioural change. `getRevenue` (API-016, `GET /reports/revenue`)
+and `listUnpaidBookings` (API-017, `GET /reports/unpaid-bookings`), specced as DRAFT in PR #39,
+are now **FROZEN** on Desk sign-off. The eight DRAFT markers in `WAVE0_02_OPENAPI.yaml` (line-1
+header, reports-tag prose, the two path comments, the two schema comments, and the
+`x-requirements-reports` block-level `status`) read FROZEN, and the two §1b Freeze Ledger rows in
+`WAVE0_00_OVERVIEW.md` flip DRAFT→FROZEN. No schema, path, DTO, or field change — status text
+only; zero code. The implementation slice may now proceed.
+
 ## Changed — API-004 `fnbAttributes` frozen (Slice A5 sign-off) [API-004]
 
 Contract-status flip only — no behavioural change. The `fnbAttributes` amendment on
