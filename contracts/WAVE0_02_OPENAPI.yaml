@@ -943,8 +943,6 @@ components:
           type: integer
           format: int64
           readOnly: true
-          # DRAFT (RX-004) — redefinition pending Desk freeze. Shape unchanged; meaning narrowed
-          # from "sum of all payments' auth" to the status-gated live hold. See RX-004 + Freeze Ledger.
           description: 'Live authorised hold = sum of payment.amountAuthorised WHERE payment
             status == AUTHORISED. Computed on read, NOT stored: a captured payment''s auth is
             spent and excluded, so this reflects only auths still held (e.g. a MANUAL room hold
