@@ -12,8 +12,9 @@ import java.util.UUID;
  * (INV-004) and read-only over the API. RX-003 split the former single {@code balance} into
  * {@code customerOwes == max(0, totalAmount - amountPaid)} (settlement; "paid" == owes 0) and
  * {@code netRevenue == amountPaid - amountRefunded} (finance read).
- * amountAuthorised (D3, Stage 4) is the live "secured" roll-up — sum of payment.amountAuthorised
- * for the booking; visible only, no enforcement. All amounts are MINOR UNITS.
+ * amountAuthorised (RX-004) is the live "secured" hold — sum of payment.amountAuthorised over
+ * AUTHORISED-status payments only, DERIVED ON READ (a captured auth is spent and excluded); not
+ * stored on the booking. Visible only, no enforcement. All amounts are MINOR UNITS.
  */
 public record FolioResponse(
         UUID id,

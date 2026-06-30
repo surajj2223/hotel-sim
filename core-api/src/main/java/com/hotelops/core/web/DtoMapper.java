@@ -6,6 +6,7 @@ import com.hotelops.core.customer.Customer;
 import com.hotelops.core.customer.CustomerPreference;
 import com.hotelops.core.ledger.LedgerPosting;
 import com.hotelops.core.payment.Payment;
+import com.hotelops.core.payment.PaymentRepository;
 import com.hotelops.core.payment.Refund;
 import com.hotelops.core.product.Product;
 import com.hotelops.core.product.ProductFnb;
@@ -36,6 +37,12 @@ import java.util.stream.Collectors;
  */
 @Component
 public class DtoMapper {
+
+    private final PaymentRepository paymentRepository;
+
+    public DtoMapper(PaymentRepository paymentRepository) {
+        this.paymentRepository = paymentRepository;
+    }
 
     public CustomerResponse toCustomerResponse(Customer c) {
         return new CustomerResponse(
@@ -143,7 +150,11 @@ public class DtoMapper {
                 booking.getTotalAmount(),
                 booking.getAmountPaid(),
                 booking.getAmountRefunded(),
-                booking.getAmountAuthorised(),
+                // RX-004: folio "secured" figure is the LIVE hold, derived on read — sum of
+                // payment.amountAuthorised over AUTHORISED-status payments only (a captured auth
+                // is spent and excluded). Never stored on the booking. Aggregate-by-id, so no
+                // lazy init (safe under open-in-view:false).
+                paymentRepository.sumAuthorisedForBooking(booking.getId()),
                 booking.getCustomerOwes(),
                 booking.getNetRevenue(),
                 lineDtos);

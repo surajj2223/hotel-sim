@@ -56,14 +56,6 @@ public class Booking {
     @Column(name = "amount_paid", nullable = false)
     private long amountPaid = 0L;
 
-    /**
-     * D3 (Stage 4) — live roll-up of amount_authorised across all payments for this booking.
-     * The folio's "secured" figure. Maintained by INV-004 alongside the others; visible only,
-     * no enforcement (no checkout-blocking, no incremental-auth).
-     */
-    @Column(name = "amount_authorised", nullable = false)
-    private long amountAuthorised = 0L;
-
     /** Sum of settled refund amounts for this booking.  INV-004. */
     @Column(name = "amount_refunded", nullable = false)
     private long amountRefunded = 0L;
