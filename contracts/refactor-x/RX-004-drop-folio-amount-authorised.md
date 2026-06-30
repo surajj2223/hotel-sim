@@ -20,8 +20,7 @@
 > superseding `RX-005`, never edited in place. Same discipline as the `WAVE0_0X` contracts and
 > RX-001/002/003.
 >
-> **Status:** `DRAFT` until Desk sign-off (authoritative in `WAVE0_00 §1b`); frozen on commit
-> once Desk flips it.
+> **Status:** `FROZEN` on Desk sign-off 2026-06-30 (authoritative in `WAVE0_00 §1b`).
 > **Owner / arbiter:** Desk.
 > **Depends on:** `WAVE0_02_OPENAPI.yaml` (`FolioResponse.amountAuthorised`), the
 > `V3__payment_line_scoping.sql` additive column, `WAVE0_00_OVERVIEW.md` §1b/§4.

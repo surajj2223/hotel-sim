@@ -339,7 +339,7 @@
                 "exec": [
                   "pm.test('200', () => pm.response.to.have.status(200));",
                   "const f = pm.response.json();",
-                  "pm.test('amountAuthorised 54000 (room hold secured)', () => pm.expect(f.amountAuthorised).to.eql(54000));",
+                  "pm.test('amountAuthorised 54000 — live hold (room auth held; only AUTHORISED payment)', () => pm.expect(f.amountAuthorised).to.eql(54000));",
                   "pm.test('amountPaid 0 (auth != revenue)', () => pm.expect(f.amountPaid).to.eql(0));",
                   "const room = f.lines.find(l => l.id === pm.collectionVariables.get('roomLineId'));",
                   "pm.test('room line revenuePosted STILL 0', () => pm.expect(room.revenuePosted).to.eql(0));"
@@ -428,7 +428,7 @@
                   "pm.test('200', () => pm.response.to.have.status(200));",
                   "const f = pm.response.json();",
                   "pm.test('total 62000 (\u00a3540 room + \u00a380 spa)', () => pm.expect(f.totalAmount).to.eql(62000));",
-                  "pm.test('amountAuthorised STILL 54000 (the seam \u2014 spa not yet secured)', () => pm.expect(f.amountAuthorised).to.eql(54000));"
+                  "pm.test('amountAuthorised STILL 54000 \u2014 live hold unchanged (spa line added, no spa payment yet)', () => pm.expect(f.amountAuthorised).to.eql(54000));"
                 ]
               }
             }
@@ -753,6 +753,7 @@
                   "  const spa = p.lines.find(l => l.id === pm.collectionVariables.get('spaLineId'));",
                   "  pm.test('spa line revenuePosted 8000', () => pm.expect(spa.revenuePosted).to.eql(8000));",
                   "  pm.test('room line still 0 (scoped allocation \u2014 spa only)', () => { const r = p.lines.find(l => l.id === pm.collectionVariables.get('roomLineId')); pm.expect(r.revenuePosted).to.eql(0); });",
+                  "  pm.test('amountAuthorised 54000 \u2014 live hold drops the spent spa auth; captured IMMEDIATE excluded (RX-004; old roll-up would read 62000)', () => pm.expect(p.amountAuthorised).to.eql(54000));",
                   "}"
                 ]
               }
@@ -1273,7 +1274,8 @@
                   "pm.test('F&B revenue on the F&B line (9000)', () => pm.expect(byId('fnbLineId').revenuePosted).to.eql(9000));",
                   "const sum = f.lines.reduce((a, l) => a + l.revenuePosted, 0);",
                   "pm.test('netRevenue == sum of line revenue (71000)', () => { pm.expect(f.netRevenue).to.eql(71000); pm.expect(sum).to.eql(71000); });",
-                  "pm.test('customerOwes 0', () => pm.expect(f.customerOwes).to.eql(0));"
+                  "pm.test('customerOwes 0', () => pm.expect(f.customerOwes).to.eql(0));",
+                  "pm.test('amountAuthorised 0 — no live hold; every auth captured (RX-004; old roll-up would read 71000)', () => pm.expect(f.amountAuthorised).to.eql(0));"
                 ]
               }
             }
